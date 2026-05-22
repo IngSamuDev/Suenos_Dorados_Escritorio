@@ -1,0 +1,12 @@
+﻿flet[all]
+SQLAlchemy>=2.0
+psycopg2-binary
+bcrypt
+reportlab
+openpyxl
+fastapi
+uvicorn[standard]
+python-dotenv
+
+# Instalar dependencias
+python -m pip install -r requirements.txt

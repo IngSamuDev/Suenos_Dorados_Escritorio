@@ -1,0 +1,23 @@
+from pathlib import Path
+
+APP_NAME = "Sueños Dorados"
+APP_SUBTITLE = "Gestión Administrativa"
+LOGO_PATH = "suenos_dorados.jpeg"
+
+COLOR_PRIMARIO = "#E7A21B"
+COLOR_PRIMARIO_HOVER = "#DE981E"
+COLOR_SECUNDARIO = "#344054"
+COLOR_SIDEBAR = "#111316"
+COLOR_FONDO = "#F2F4F7"
+COLOR_BLANCO = "#FFFFFF"
+COLOR_BORDE = "#D0D5DD"
+COLOR_TEXTO = "#111827"
+COLOR_TEXTO_G = "#596579"
+COLOR_EXITO = "#1F9D55"
+COLOR_ALERTA = "#D92D20"
+COLOR_INFO = "#4F46E5"
+
+BASE_DIR = Path(__file__).resolve().parent
+LOGO_FILE = BASE_DIR / LOGO_PATH
+
+
