@@ -65,22 +65,11 @@ class DescuentosCrudMixin:
                         self._text_cell(record.get("porcentaje_descuento")),
                         self._text_cell(record.get("fecha_inicio")),
                         self._text_cell(record.get("fecha_fin")),
-                        self._discount_active_cell(record),
+                        self._status_cell(record.get("estado_texto")),
                     ]
                 )
             )
-        return self._table_panel(f"{len(rows_data)} descuentos", ["Acciones", "Código", "Producto", "%", "Inicio", "Fin", "Activo"], rows)
-
-    def _discount_active_cell(self, record):
-        return ft.DataCell(
-            ft.Switch(
-                value=bool(record.get("is_active")),
-                active_color=Tema.SUCCESS,
-                inactive_thumb_color=Tema.ERROR,
-                tooltip="Activar o desactivar descuento",
-                on_change=lambda event, discount_id=record["id"]: self._toggle_discount_active(discount_id, event.control.value),
-            )
-        )
+        return self._table_panel(f"{len(rows_data)} descuentos", ["Acciones", "Código", "Producto", "%", "Inicio", "Fin", "Estado"], rows)
 
 
 

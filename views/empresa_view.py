@@ -36,9 +36,10 @@ class EmpresaView(ft.Container):
             spacing=18,
             controls=[
                 ft.Container(
-                    bgcolor="#111316",
-                    border_radius=12,
-                    padding=22,
+                    bgcolor=Tema.BG_SIDEBAR,
+                    border_radius=16,
+                    padding=24,
+                    shadow=ft.BoxShadow(blur_radius=24, color=ft.Colors.with_opacity(0.16, "#172033"), offset=ft.Offset(0, 10)),
                     content=ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         controls=[
@@ -52,7 +53,7 @@ class EmpresaView(ft.Container):
                 ),
                 ft.Container(
                     bgcolor=Tema.BG_CARD,
-                    border_radius=10,
+                    border_radius=14,
                     padding=20,
                     border=ft.Border(
                         left=ft.BorderSide(1, Tema.BORDER_SOFT),
@@ -60,6 +61,7 @@ class EmpresaView(ft.Container):
                         top=ft.BorderSide(1, Tema.BORDER_SOFT),
                         bottom=ft.BorderSide(1, Tema.BORDER_SOFT),
                     ),
+                    shadow=ft.BoxShadow(blur_radius=22, color=ft.Colors.with_opacity(0.08, "#172033"), offset=ft.Offset(0, 9)),
                     content=ft.Column(spacing=16, controls=[
                         ft.ResponsiveRow(spacing=14, run_spacing=14, controls=[
                             self._field("nombre", "Nombre de la empresa", ft.Icons.STORE_ROUNDED),

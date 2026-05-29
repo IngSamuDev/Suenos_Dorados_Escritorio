@@ -38,7 +38,7 @@ class DashboardView(ft.Container):
         ("Inventario", ft.Icons.WAREHOUSE_ROUNDED, "inventario"),
         ("Pedidos", ft.Icons.RECEIPT_LONG_ROUNDED, "pedidos"),
         ("Logística", ft.Icons.LOCAL_SHIPPING_ROUNDED, "logistica"),
-        ("Empresa", ft.Icons.BUSINESS_ROUNDED, "empresa"),
+        ("Configuración", ft.Icons.SETTINGS_ROUNDED, "empresa"),
     ]
 
     VIEW_FACTORY = {
@@ -87,14 +87,17 @@ class DashboardView(ft.Container):
         self._render_current_view()
 
     def _build_navigation(self):
-        nav_items = [self._nav_item(index, label, icon) for index, (label, icon, _) in enumerate(self.DESTINATIONS)]
+        nav_items = [self._nav_item(index, label, icon) for index, (label, icon, view_id) in enumerate(self.DESTINATIONS) if view_id != "empresa"]
+        config_index = next(index for index, (_, _, view_id) in enumerate(self.DESTINATIONS) if view_id == "empresa")
+        config_label, config_icon, _ = self.DESTINATIONS[config_index]
         return ft.Container(
             width=Tema.SIDEBAR_WIDTH,
             bgcolor=Tema.BG_SIDEBAR,
-            padding=ft.Padding(10, 14, 10, 14),
+            padding=ft.Padding(12, 14, 12, 14),
+            border=ft.Border(right=ft.BorderSide(1, "#24314A")),
             content=ft.Column(
                 expand=True,
-                spacing=8,
+                spacing=10,
                 controls=[
                     self._brand(),
                     ft.Container(
@@ -106,6 +109,7 @@ class DashboardView(ft.Container):
                             controls=nav_items,
                         ),
                     ),
+                    self._nav_item(config_index, config_label, config_icon),
                     self._logout_button(),
                 ],
             ),
@@ -113,7 +117,16 @@ class DashboardView(ft.Container):
 
     def _brand(self):
         return ft.Container(
-            padding=ft.Padding(12, 10, 10, 10),
+            padding=ft.Padding(10, 10, 10, 12),
+            bgcolor="#202B43",
+            border_radius=14,
+            border=ft.Border(
+                left=ft.BorderSide(1, "#33415F"),
+                right=ft.BorderSide(1, "#33415F"),
+                top=ft.BorderSide(1, "#33415F"),
+                bottom=ft.BorderSide(1, "#33415F"),
+            ),
+            shadow=ft.BoxShadow(blur_radius=16, color=ft.Colors.with_opacity(0.16, ft.Colors.BLACK), offset=ft.Offset(0, 8)),
             content=ft.Row(
                 spacing=10,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -123,7 +136,7 @@ class DashboardView(ft.Container):
                         spacing=1,
                         controls=[
                             ft.Text(self.empresa_info.nombre, size=14, weight=ft.FontWeight.W_800, color=Tema.TEXT_ON_DARK),
-                            ft.Text("Administrador", size=12, color=ft.Colors.with_opacity(0.76, Tema.TEXT_ON_DARK)),
+                            ft.Text("Administrador", size=12, color=ft.Colors.with_opacity(0.70, Tema.TEXT_ON_DARK)),
                         ],
                     ),
                 ],
@@ -132,23 +145,35 @@ class DashboardView(ft.Container):
 
     def _nav_item(self, index, label, icon):
         selected = index == self.selected_index
+        view_id = self.DESTINATIONS[index][2]
+        is_config = view_id == "empresa"
+        bg_color = "#0F1728" if selected and is_config else Tema.GOLD if selected else "#23304A" if is_config else Tema.BG_SIDEBAR
+        border_color = Tema.GOLD if selected or is_config else Tema.BG_SIDEBAR
+        text_color = Tema.GOLD if selected and is_config else Tema.TEXT_ON_GOLD if selected else Tema.GOLD if is_config else ft.Colors.with_opacity(0.86, Tema.TEXT_ON_DARK)
         return ft.Container(
-            height=44,
-            border_radius=10,
+            height=42,
+            border_radius=9,
             padding=ft.Padding(12, 0, 12, 0),
-            bgcolor=Tema.GOLD if selected else Tema.BG_SIDEBAR,
+            bgcolor=bg_color,
+            border=ft.Border(
+                left=ft.BorderSide(1, border_color),
+                right=ft.BorderSide(1, border_color),
+                top=ft.BorderSide(1, border_color),
+                bottom=ft.BorderSide(1, border_color),
+            ),
             ink=True,
             animate=180,
             animate_scale=180,
             scale=1.0,
+            data={"is_config": is_config},
             on_hover=lambda event, is_selected=selected: self._nav_hover(event, is_selected),
             on_click=lambda _, idx=index: self._go_nav_index(idx),
             content=ft.Row(
                 spacing=12,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Icon(icon, size=21, color="#111827" if selected else ft.Colors.with_opacity(0.88, Tema.TEXT_ON_DARK)),
-                    ft.Text(label, size=13, weight=ft.FontWeight.W_800 if selected else ft.FontWeight.W_600, color="#111827" if selected else ft.Colors.with_opacity(0.88, Tema.TEXT_ON_DARK)),
+                    ft.Icon(icon, size=21, color=text_color),
+                    ft.Text(label, size=13, weight=ft.FontWeight.W_800 if selected or is_config else ft.FontWeight.W_600, color=text_color),
                 ],
             ),
         )
@@ -157,7 +182,11 @@ class DashboardView(ft.Container):
         if selected:
             return
         event.control.scale = 1.035 if event.data == "true" else 1.0
-        event.control.bgcolor = ft.Colors.with_opacity(0.10, Tema.GOLD) if event.data == "true" else Tema.BG_SIDEBAR
+        is_config = bool((event.control.data or {}).get("is_config"))
+        if event.data == "true":
+            event.control.bgcolor = "#2B3A58" if is_config else Tema.BG_SIDEBAR_HOVER
+        else:
+            event.control.bgcolor = "#23304A" if is_config else Tema.BG_SIDEBAR
         try:
             event.control.update()
         except RuntimeError:
@@ -168,14 +197,16 @@ class DashboardView(ft.Container):
             height=42,
             border_radius=10,
             padding=ft.Padding(12, 0, 12, 0),
+            bgcolor="#D92D20",
+            shadow=ft.BoxShadow(blur_radius=12, color=ft.Colors.with_opacity(0.16, Tema.ERROR), offset=ft.Offset(0, 6)),
             ink=True,
             on_click=lambda _: self.on_logout(),
             content=ft.Row(
                 spacing=12,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Icon(ft.Icons.LOGOUT_ROUNDED, color=Tema.ERROR, size=20),
-                    ft.Text("Cerrar sesión", color=Tema.TEXT_ON_DARK, size=13, weight=ft.FontWeight.W_700),
+                    ft.Icon(ft.Icons.LOGOUT_ROUNDED, color=ft.Colors.WHITE, size=20),
+                    ft.Text("Cerrar sesión", color=ft.Colors.WHITE, size=13, weight=ft.FontWeight.W_800),
                 ],
             ),
         )
@@ -184,8 +215,8 @@ class DashboardView(ft.Container):
         self.empresa_info = self.empresa_controller.get_info()
         return ft.Container(
             bgcolor=Tema.BG_SECONDARY,
-            padding=ft.Padding(28, 18, 28, 18),
-            border=ft.Border(bottom=ft.BorderSide(1, Tema.BORDER)),
+            padding=ft.Padding(28, 16, 28, 16),
+            border=ft.Border(bottom=ft.BorderSide(1, Tema.BORDER_SOFT)),
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -319,10 +350,10 @@ class DashboardView(ft.Container):
 
     def _dashboard_hero(self, daily_sales, inventory, sales):
         return ft.Container(
-            bgcolor="#111316",
-            border_radius=12,
-            padding=22,
-            shadow=ft.BoxShadow(blur_radius=18, color=ft.Colors.with_opacity(0.16, ft.Colors.BLACK), offset=ft.Offset(0, 8)),
+            bgcolor=Tema.BG_SIDEBAR,
+            border_radius=16,
+            padding=24,
+            shadow=ft.BoxShadow(blur_radius=24, color=ft.Colors.with_opacity(0.18, "#172033"), offset=ft.Offset(0, 12)),
             content=ft.ResponsiveRow(
                 spacing=18,
                 run_spacing=18,
@@ -342,8 +373,8 @@ class DashboardView(ft.Container):
 
     def _hero_stat(self, title, value, color):
         return ft.Container(
-            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.WHITE),
-            border_radius=10,
+            bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.WHITE),
+            border_radius=12,
             padding=16,
             border=ft.Border(left=ft.BorderSide(3, color)),
             content=ft.Column(spacing=5, controls=[
@@ -356,10 +387,10 @@ class DashboardView(ft.Container):
         return ft.Container(
             col={"xs": 12, "sm": 6, "lg": col},
             bgcolor=Tema.BG_CARD,
-            border_radius=10,
+            border_radius=14,
             padding=18,
             border=ft.Border(left=ft.BorderSide(4, color), right=ft.BorderSide(1, Tema.BORDER_SOFT), top=ft.BorderSide(1, Tema.BORDER_SOFT), bottom=ft.BorderSide(1, Tema.BORDER_SOFT)),
-            shadow=ft.BoxShadow(blur_radius=16, color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK), offset=ft.Offset(0, 7)),
+            shadow=ft.BoxShadow(blur_radius=20, color=ft.Colors.with_opacity(0.08, "#172033"), offset=ft.Offset(0, 8)),
             content=ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
                 ft.Column(spacing=6, controls=[ft.Text(title, size=12, color=Tema.TEXT_MUTED), ft.Text(value, size=24, weight=ft.FontWeight.W_800, color=Tema.TEXT_PRIMARY)]),
                 ft.Container(content=ft.Icon(icon, color=color, size=24), width=46, height=46, alignment=ft.Alignment.CENTER, bgcolor=ft.Colors.with_opacity(0.12, color), border_radius=10),

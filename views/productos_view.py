@@ -143,15 +143,15 @@ PRODUCTOS_DISPLAY_QUERIES = {'productos': {'columns': ['nombre_producto', 'categ
              'select': 'SELECT id_medida, nombre_medida, ancho_cm, largo_cm, descripcion FROM medidas',
              'search': ['nombre_medida', 'descripcion', 'CAST(ancho_cm AS TEXT)', 'CAST(largo_cm AS TEXT)'],
              'order': 'id_medida'},
- 'imagenes_producto': {'columns': ['producto', 'color', 'url_imagen', 'orden', 'principal_texto'],
-                       'headings': ['Producto', 'Color', 'Imagen', 'Orden', 'Principal'],
+ 'imagenes_producto': {'columns': ['producto', 'color', 'url_imagen', 'orden', 'estado_texto'],
+                       'headings': ['Producto', 'Color', 'Imagen', 'Orden', 'Estado'],
                        'select': '\n'
                                  '            SELECT i.id_imagen, i.id_producto, i.id_color, i.url_imagen, i.orden, '
                                  'i.es_principal,\n'
                                  '                   p.nombre_producto AS producto,\n'
                                  '                   c.nombre_color AS color,\n'
-                                 "                   CASE WHEN i.es_principal THEN 'Sí' ELSE 'No' END AS "
-                                 'principal_texto\n'
+                                 "                   CASE WHEN i.es_principal THEN 'Activo' ELSE 'Inactivo' END AS "
+                                 'estado_texto\n'
                                  '            FROM imagenes_producto i\n'
                                  '            LEFT JOIN productos p ON p.id_producto = i.id_producto\n'
                                  '            LEFT JOIN colores c ON c.id_color = i.id_color\n'
@@ -228,15 +228,16 @@ class ColeccionesView(BaseCrudView):
 class InventarioCrudMixin:
     def _stock_adjust_panel(self):
         return ft.Container(
-            bgcolor="#FFFBEB",
-            border_radius=10,
+            bgcolor=Tema.GOLD_SOFT,
+            border_radius=14,
             padding=18,
             border=ft.Border(
                 left=ft.BorderSide(4, Tema.GOLD),
-                right=ft.BorderSide(1, "#F7D08A"),
-                top=ft.BorderSide(1, "#F7D08A"),
-                bottom=ft.BorderSide(1, "#F7D08A"),
+                right=ft.BorderSide(1, "#F4D58A"),
+                top=ft.BorderSide(1, "#F4D58A"),
+                bottom=ft.BorderSide(1, "#F4D58A"),
             ),
+            shadow=ft.BoxShadow(blur_radius=18, color=ft.Colors.with_opacity(0.07, "#172033"), offset=ft.Offset(0, 8)),
             content=ft.Column(
                 spacing=12,
                 controls=[
@@ -278,7 +279,7 @@ class InventarioCrudMixin:
             menu_width=420,
             border_color=Tema.BORDER,
             focused_border_color=Tema.GOLD,
-            bgcolor="#FFF7E8",
+            bgcolor="#FFFFFF",
             color=Tema.TEXT_PRIMARY,
             options=self._stock_variant_options(),
             hint_text="Busca producto o SKU",
@@ -316,7 +317,7 @@ class InventarioCrudMixin:
             prefix_icon=ft.Icons.NUMBERS_ROUNDED,
             border_color=Tema.BORDER,
             focused_border_color=Tema.GOLD,
-            bgcolor="#FFF7E8",
+            bgcolor="#FFFFFF",
             color=Tema.TEXT_PRIMARY,
             keyboard_type=ft.KeyboardType.NUMBER,
             on_submit=lambda _: self._adjust_stock(1),
@@ -414,7 +415,7 @@ class InventarioCrudMixin:
             text_align=ft.TextAlign.CENTER,
             border_color=Tema.BORDER,
             focused_border_color=Tema.GOLD,
-            bgcolor="#FFFBEB",
+            bgcolor="#FFFFFF",
             color=Tema.TEXT_PRIMARY,
             keyboard_type=ft.KeyboardType.NUMBER,
         )
@@ -422,38 +423,41 @@ class InventarioCrudMixin:
         return field
 
     def _inventory_action_cell(self, record, variant_id):
+        actions = [
+            ft.IconButton(
+                icon=ft.Icons.EDIT_ROUNDED,
+                icon_color=Tema.GOLD,
+                tooltip="Editar datos del SKU",
+                on_click=lambda _, rec=record: self._edit_record(rec),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                icon_color=Tema.ERROR,
+                tooltip="Eliminar SKU",
+                on_click=lambda _, rec=record: self._confirm_delete(rec),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.TOUCH_APP_ROUNDED,
+                icon_color="#8A5A00",
+                icon_size=20,
+                tooltip="Seleccionar",
+                width=40,
+                height=40,
+                padding=ft.Padding(8, 8, 8, 8),
+                on_click=lambda _, rec=record, row_variant_id=variant_id: self._select_stock_record(rec, row_variant_id),
+                style=ft.ButtonStyle(
+                    side={ft.ControlState.DEFAULT: ft.BorderSide(1, "#D9A441")},
+                    shape=ft.RoundedRectangleBorder(radius=8),
+                ),
+            ),
+        ]
+        if "estado" in record:
+            actions.append(self._boolean_switch(record, "estado"))
         return ft.DataCell(
             ft.Row(
                 spacing=6,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.IconButton(
-                        icon=ft.Icons.EDIT_ROUNDED,
-                        icon_color=Tema.GOLD,
-                        tooltip="Editar datos del SKU",
-                        on_click=lambda _, rec=record: self._edit_record(rec),
-                    ),
-                    ft.IconButton(
-                        icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
-                        icon_color=Tema.ERROR,
-                        tooltip="Eliminar SKU",
-                        on_click=lambda _, rec=record: self._confirm_delete(rec),
-                    ),
-                    ft.IconButton(
-                        icon=ft.Icons.TOUCH_APP_ROUNDED,
-                        icon_color="#8A5A00",
-                        icon_size=20,
-                        tooltip="Seleccionar",
-                        width=40,
-                        height=40,
-                        padding=ft.Padding(8, 8, 8, 8),
-                        on_click=lambda _, rec=record, row_variant_id=variant_id: self._select_stock_record(rec, row_variant_id),
-                        style=ft.ButtonStyle(
-                            side={ft.ControlState.DEFAULT: ft.BorderSide(1, "#D9A441")},
-                            shape=ft.RoundedRectangleBorder(radius=8),
-                        ),
-                    ),
-                ],
+                controls=actions,
             )
         )
 

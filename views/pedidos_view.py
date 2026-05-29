@@ -198,7 +198,7 @@ class PedidosView(BaseCrudView):
 
     def _order_items_panel(self):
         return ft.Container(
-            bgcolor="#FFFBEB",
+            bgcolor=Tema.GOLD_SOFT,
             border_radius=10,
             padding=14,
             border=ft.Border(
@@ -228,7 +228,7 @@ class PedidosView(BaseCrudView):
                     ],
                 ),
                 ft.Container(
-                    bgcolor="#FFFFFF",
+                    bgcolor=Tema.BG_CARD,
                     border_radius=8,
                     padding=ft.Padding(10, 8, 10, 8),
                     content=ft.Row(spacing=8, controls=[
@@ -327,9 +327,9 @@ class PedidosView(BaseCrudView):
             hint_text="Producto",
         )
         qty = ft.TextField(value="1", width=78, dense=True, text_align=ft.TextAlign.CENTER, keyboard_type=ft.KeyboardType.NUMBER, border_color=Tema.BORDER, focused_border_color=Tema.GOLD, bgcolor="#FFFFFF", color=Tema.TEXT_PRIMARY)
-        price = ft.TextField(value="0.00", width=108, dense=True, read_only=True, border_color=Tema.BORDER, bgcolor="#F8FAFC", color=Tema.TEXT_PRIMARY)
+        price = ft.TextField(value="0.00", width=108, dense=True, read_only=True, border_color=Tema.BORDER, bgcolor=Tema.BG_TABLE_HEAD, color=Tema.TEXT_PRIMARY)
         discount = ft.Dropdown(width=160, dense=True, editable=True, enable_filter=True, enable_search=True, menu_height=220, border_color=Tema.BORDER, focused_border_color=Tema.GOLD, bgcolor="#FFFFFF", color=Tema.TEXT_PRIMARY, options=self._line_discount_options(), value="0")
-        line_total = ft.TextField(value="0.00", width=118, dense=True, read_only=True, border_color=Tema.BORDER, bgcolor="#F8FAFC", color=Tema.TEXT_PRIMARY)
+        line_total = ft.TextField(value="0.00", width=118, dense=True, read_only=True, border_color=Tema.BORDER, bgcolor=Tema.BG_TABLE_HEAD, color=Tema.TEXT_PRIMARY)
 
         row.update({"product": product, "qty": qty, "price": price, "discount": discount, "line_total": line_total})
         product.on_select = lambda _, current=row: self._on_variant_selected(current)

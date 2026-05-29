@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import flet as ft
 from sqlalchemy import text
 
@@ -24,10 +27,36 @@ USUARIOS_GROUP = {'title': 'Usuarios y roles',
              'fields': [('id_usuario', 'int'),
                         ('descripcion_direccion', 'str'),
                         ('descripcion_barrio', 'str'),
-                        ('descripcion_municipio', 'str'),
                         ('descripcion_departamento', 'str'),
+                        ('descripcion_municipio', 'str'),
                         ('es_principal', 'bool')]},
             {'label': 'Roles', 'table': 'roles', 'pk': 'id_rol', 'fields': [('descripcion_rol', 'str')]}]}
+
+
+LOCATIONS_DIR = Path(__file__).resolve().parents[1] / "utils"
+
+
+def _load_location_data():
+    try:
+        departments = json.loads((LOCATIONS_DIR / "colombia_departments.json").read_text(encoding="utf-8"))["data"]
+        cities = json.loads((LOCATIONS_DIR / "colombia_cities.json").read_text(encoding="utf-8"))["data"]
+    except Exception:
+        return [], {}
+
+    departments = sorted(departments, key=lambda item: item["name"])
+    department_ids = {item["name"]: item["id"] for item in departments}
+    department_names_by_id = {item["id"]: item["name"] for item in departments}
+    cities_by_department = {item["name"]: [] for item in departments}
+    for city in cities:
+        department_name = department_names_by_id.get(city["departmentId"])
+        if department_name:
+            cities_by_department[department_name].append(city["name"])
+    for city_list in cities_by_department.values():
+        city_list.sort()
+    return departments, cities_by_department
+
+
+COLOMBIA_DEPARTMENTS, COLOMBIA_CITIES_BY_DEPARTMENT = _load_location_data()
 
 
 class UsuariosView(BaseCrudView):
@@ -35,34 +64,125 @@ class UsuariosView(BaseCrudView):
         self.controller = UsuariosController()
         super().__init__(self.controller.group_id, USUARIOS_GROUP)
 
+    def _department_options(self):
+        return [ft.dropdown.Option(key=item["name"], text=item["name"]) for item in COLOMBIA_DEPARTMENTS]
+
+    def _municipality_options(self, department):
+        return [ft.dropdown.Option(key=name, text=name) for name in COLOMBIA_CITIES_BY_DEPARTMENT.get(department, [])]
+
+    def _build_department_dropdown(self, field_name, label, municipality_field):
+        return ft.Dropdown(
+            label=label,
+            width=390,
+            dense=True,
+            editable=True,
+            enable_filter=True,
+            enable_search=True,
+            menu_height=260,
+            border_color=Tema.BORDER,
+            focused_border_color=Tema.GOLD,
+            bgcolor="#FFFFFF",
+            color=Tema.TEXT_PRIMARY,
+            options=self._department_options(),
+            hint_text="Selecciona departamento",
+            on_change=lambda _: self._refresh_municipality_options(field_name, municipality_field),
+        )
+
+    def _build_municipality_dropdown(self, label):
+        return ft.Dropdown(
+            label=label,
+            width=390,
+            dense=True,
+            editable=True,
+            enable_filter=True,
+            enable_search=True,
+            menu_height=260,
+            border_color=Tema.BORDER,
+            focused_border_color=Tema.GOLD,
+            bgcolor="#FFFFFF",
+            color=Tema.TEXT_PRIMARY,
+            options=[],
+            hint_text="Primero selecciona departamento",
+        )
+
+    def _refresh_municipality_options(self, department_field, municipality_field, keep_value=False):
+        department_control = self.form_controls.get(department_field)
+        municipality_control = self.form_controls.get(municipality_field)
+        if not department_control or not municipality_control:
+            return
+        current_value = municipality_control.value
+        municipality_control.options = self._municipality_options(department_control.value)
+        valid_values = {option.key for option in municipality_control.options}
+        if not keep_value or current_value not in valid_values:
+            municipality_control.value = ""
+        else:
+            municipality_control.value = current_value
+        municipality_control.hint_text = "Selecciona municipio / ciudad" if department_control.value else "Primero selecciona departamento"
+        try:
+            municipality_control.update()
+        except RuntimeError:
+            pass
+
+    def _build_field_control(self, field_name, field_type):
+        if self.current_config["table"] == "direcciones":
+            if field_name == "descripcion_departamento":
+                return self._build_department_dropdown(field_name, self._pretty(field_name), "descripcion_municipio")
+            if field_name == "descripcion_municipio":
+                return self._build_municipality_dropdown(self._pretty(field_name))
+        return super()._build_field_control(field_name, field_type)
+
     def _build_user_address_fields(self):
-        address_fields = [
-            ("direccion_descripcion", "Dirección", "str"),
-            ("direccion_barrio", "Barrio", "str"),
-            ("direccion_municipio", "Municipio / Ciudad", "str"),
-            ("direccion_departamento", "Departamento", "str"),
-        ]
-        controls = []
-        for key, label, _ in address_fields:
-            control = ft.TextField(
-                label=label,
-                width=390,
-                dense=True,
-                border_color=Tema.BORDER,
-                focused_border_color=Tema.GOLD,
-                bgcolor="#FFFFFF",
-                color=Tema.TEXT_PRIMARY,
-            )
-            self.form_controls[key] = control
-            controls.append(control)
+        address = ft.TextField(
+            label="Dirección",
+            width=390,
+            dense=True,
+            border_color=Tema.BORDER,
+            focused_border_color=Tema.GOLD,
+            bgcolor="#FFFFFF",
+            color=Tema.TEXT_PRIMARY,
+        )
+        barrio = ft.TextField(
+            label="Barrio",
+            width=390,
+            dense=True,
+            border_color=Tema.BORDER,
+            focused_border_color=Tema.GOLD,
+            bgcolor="#FFFFFF",
+            color=Tema.TEXT_PRIMARY,
+        )
+        department = self._build_department_dropdown("direccion_departamento", "Departamento", "direccion_municipio")
+        municipality = self._build_municipality_dropdown("Municipio / Ciudad")
+        self.form_controls["direccion_descripcion"] = address
+        self.form_controls["direccion_barrio"] = barrio
+        self.form_controls["direccion_departamento"] = department
+        self.form_controls["direccion_municipio"] = municipality
         principal = ft.Checkbox(label="Dirección principal", value=True, fill_color=Tema.GOLD)
         self.form_controls["direccion_principal"] = principal
         return [
             ft.Container(height=4),
             ft.Text("Dirección principal", size=13, weight=ft.FontWeight.W_700, color=Tema.TEXT_PRIMARY),
-            ft.Row(controls[:3], spacing=12, wrap=True),
-            ft.Row([controls[3], principal], spacing=12, wrap=True),
+            ft.Row([address, barrio], spacing=12, wrap=True),
+            ft.Row([department, municipality], spacing=12, wrap=True),
+            ft.Row([principal], spacing=12, wrap=True),
         ]
+
+    def _fill_form_from_record(self, record):
+        super()._fill_form_from_record(record)
+        if self.current_config["table"] == "usuarios":
+            self._refresh_municipality_options("direccion_departamento", "direccion_municipio", keep_value=True)
+        if self.current_config["table"] == "direcciones":
+            self._refresh_municipality_options("descripcion_departamento", "descripcion_municipio", keep_value=True)
+
+    def _validate_location_pair(self, department, municipality):
+        if department and department not in COLOMBIA_CITIES_BY_DEPARTMENT:
+            raise ValueError("Selecciona un departamento válido")
+        if department and municipality and municipality not in COLOMBIA_CITIES_BY_DEPARTMENT.get(department, []):
+            raise ValueError("El municipio / ciudad no corresponde al departamento seleccionado")
+
+    def _validate_record(self, config, values):
+        super()._validate_record(config, values)
+        if config["table"] == "direcciones":
+            self._validate_location_pair(values.get("descripcion_departamento"), values.get("descripcion_municipio"))
 
     def _load_users_table(self, config):
         order_col = self.order_field.value if self.order_field and self.order_field.value in ["id_usuario", "id_rol", "nombre_usuario", "apellido_usuario", "correo_electronico", "telefono", "estado"] else "id_usuario"
@@ -206,6 +326,7 @@ class UsuariosView(BaseCrudView):
             return
         if not address or not municipio or not departamento:
             raise ValueError("Para guardar dirección debes llenar Dirección, Municipio/Ciudad y Departamento")
+        self._validate_location_pair(departamento, municipio)
         if principal:
             db.execute(text("UPDATE direcciones SET es_principal = FALSE WHERE id_usuario = :user_id"), {"user_id": user_id})
         existing_id = db.execute(

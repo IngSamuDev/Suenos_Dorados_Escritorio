@@ -1,13 +1,32 @@
 from decimal import Decimal
 import re
+import shutil
+from pathlib import Path
 from datetime import date, datetime
+from uuid import uuid4
 
 import flet as ft
 from sqlalchemy import text
 
+from config import BASE_DIR
 from database import SessionLocal
 from utils.theme import Tema
 from views.crud_metadata import LOOKUP_CONFIG
+
+COLOR_PALETTE = [
+    ("Negro", "#111827"),
+    ("Blanco", "#FFFFFF"),
+    ("Dorado", "#E7A21B"),
+    ("Rojo", "#D92D20"),
+    ("Verde", "#1F9D55"),
+    ("Azul", "#2563EB"),
+    ("Morado", "#7C3AED"),
+    ("Rosa", "#DB2777"),
+    ("Gris", "#6B7280"),
+    ("Café", "#92400E"),
+]
+
+IMAGE_UPLOAD_DIR = BASE_DIR / "imagenes_app" / "productos"
 
 class BaseCrudView(ft.Container):
     def __init__(self, group_id, group_config, display_queries=None):
@@ -54,7 +73,7 @@ class BaseCrudView(ft.Container):
         self.table_selector = ft.Dropdown(width=260, label="Tabla", editable=True, enable_filter=True, enable_search=True, menu_height=300, border_color=Tema.BORDER, focused_border_color=Tema.GOLD, bgcolor=Tema.BG_INPUT, color=Tema.TEXT_PRIMARY, options=[ft.dropdown.Option(t["label"]) for t in group["tables"]], value=group["tables"][0]["label"], on_select=lambda _: self._select_crud_table())
         self.search_field = ft.TextField(label="Buscar", width=260, dense=True, prefix_icon=ft.Icons.SEARCH_ROUNDED, border_color=Tema.BORDER, focused_border_color=Tema.GOLD, bgcolor=Tema.BG_INPUT, color=Tema.TEXT_PRIMARY, on_submit=lambda _: self._refresh_crud_table())
         self.order_field = ft.Dropdown(width=220, label="Ordenar por", editable=True, enable_filter=True, enable_search=True, menu_height=300, border_color=Tema.BORDER, focused_border_color=Tema.GOLD, bgcolor=Tema.BG_INPUT, color=Tema.TEXT_PRIMARY, options=[], on_select=lambda _: self._refresh_crud_table())
-        self.content_area.content = ft.Column(expand=True, spacing=14, controls=[
+        self.content_area.content = ft.Column(expand=True, spacing=16, controls=[
             ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
                 ft.Column(spacing=3, controls=[ft.Text(group["title"], size=18, weight=ft.FontWeight.W_800, color=Tema.TEXT_PRIMARY), ft.Text("Gestiona registros, movimientos y consultas conectadas a PostgreSQL.", size=12, color=Tema.TEXT_MUTED)]),
                 ft.Row([self.search_field, ft.IconButton(icon=ft.Icons.SEARCH_ROUNDED, tooltip="Buscar", on_click=lambda _: self._refresh_crud_table()), self.order_field, self.table_selector], spacing=12, wrap=True),
@@ -109,6 +128,10 @@ class BaseCrudView(ft.Container):
             )
             control.on_click = lambda _, target=control: self._open_date_picker(target)
             return control
+        if field_name == "codigo_hex":
+            return self._build_color_palette_control(field_name)
+        if field_name == "url_imagen":
+            return self._build_image_picker_control(field_name)
         if field_name in LOOKUP_CONFIG:
             return ft.Dropdown(
                 label=self._pretty(field_name),
@@ -138,6 +161,74 @@ class BaseCrudView(ft.Container):
             color=Tema.TEXT_PRIMARY,
         )
 
+    def _build_color_palette_control(self, field_name):
+        field = ft.TextField(
+            label=self._pretty(field_name),
+            hint_text="#RRGGBB",
+            width=390,
+            dense=True,
+            prefix_icon=ft.Icons.PALETTE_ROUNDED,
+            border_color=Tema.BORDER,
+            focused_border_color=Tema.GOLD,
+            bgcolor="#FFFFFF",
+            color=Tema.TEXT_PRIMARY,
+        )
+
+        def select_color(hex_value):
+            field.value = hex_value
+            try:
+                field.update()
+            except RuntimeError:
+                pass
+
+        swatches = [
+            ft.Container(
+                width=28,
+                height=28,
+                border_radius=6,
+                bgcolor=hex_value,
+                border=ft.Border(
+                    left=ft.BorderSide(1, Tema.BORDER),
+                    right=ft.BorderSide(1, Tema.BORDER),
+                    top=ft.BorderSide(1, Tema.BORDER),
+                    bottom=ft.BorderSide(1, Tema.BORDER),
+                ),
+                tooltip=f"{name} {hex_value}",
+                ink=True,
+                on_click=lambda _, color=hex_value: select_color(color),
+            )
+            for name, hex_value in COLOR_PALETTE
+        ]
+        return field, ft.Column(spacing=8, controls=[field, ft.Row(spacing=7, wrap=True, controls=swatches)])
+
+    def _build_image_picker_control(self, field_name):
+        field = ft.TextField(
+            label=self._pretty(field_name),
+            hint_text="URL o ruta de imagen",
+            width=650,
+            dense=True,
+            prefix_icon=ft.Icons.IMAGE_ROUNDED,
+            border_color=Tema.BORDER,
+            focused_border_color=Tema.GOLD,
+            bgcolor="#FFFFFF",
+            color=Tema.TEXT_PRIMARY,
+        )
+        async def open_picker(_):
+            await self._open_image_file_picker(field)
+
+        button = ft.OutlinedButton(
+            "Buscar archivo",
+            icon=ft.Icons.FOLDER_OPEN_ROUNDED,
+            on_click=open_picker,
+            style=ft.ButtonStyle(
+                color="#B35A00",
+                side={ft.ControlState.DEFAULT: ft.BorderSide(1, "#F0A23A")},
+                shape=ft.RoundedRectangleBorder(radius=10),
+                padding=ft.Padding(14, 10, 14, 10),
+            ),
+        )
+        return field, ft.Row(spacing=10, wrap=True, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[field, button])
+
     def _lookup_options(self, field_name):
         cfg = LOOKUP_CONFIG[field_name]
         select_columns = [cfg["pk"], *cfg["columns"]]
@@ -156,6 +247,74 @@ class BaseCrudView(ft.Container):
             label = details or str(row[cfg["pk"]])
             options.append(ft.dropdown.Option(key=str(row[cfg["pk"]]), text=label))
         return options
+
+    def _open_date_picker(self, target):
+        today = date.today()
+        selected_date = today
+        if target.value:
+            try:
+                selected_date = max(date.fromisoformat(str(target.value).strip()), today)
+            except ValueError:
+                selected_date = today
+
+        def on_change(event):
+            if event.control.value:
+                value = event.control.value
+                target.value = (value.date() if hasattr(value, "date") else value).isoformat()
+                target.update()
+
+        picker = ft.DatePicker(
+            first_date=datetime.combine(today, datetime.min.time()),
+            last_date=datetime(today.year + 10, 12, 31),
+            value=datetime.combine(selected_date, datetime.min.time()),
+            on_change=on_change,
+        )
+        try:
+            self.page.open(picker)
+        except Exception:
+            if picker not in self.page.overlay:
+                self.page.overlay.append(picker)
+            picker.open = True
+            self.page.update()
+
+    async def _open_image_file_picker(self, target):
+        picker = ft.FilePicker()
+        if hasattr(self.page, "services"):
+            if picker not in self.page.services:
+                self.page.services.append(picker)
+        elif picker not in self.page.overlay:
+            self.page.overlay.append(picker)
+        self.page.update()
+        try:
+            file_type = getattr(ft.FilePickerFileType, "CUSTOM", None)
+            files = await picker.pick_files(
+                allow_multiple=False,
+                file_type=file_type,
+                allowed_extensions=["png", "jpg", "jpeg", "webp", "gif"],
+            )
+        except TypeError:
+            files = await picker.pick_files(allow_multiple=False)
+
+        if not files:
+            return
+        try:
+            target.value = self._store_image_file(files[0].path)
+            target.update()
+        except Exception as exc:
+            self._show_dialog_error(f"No se pudo cargar la imagen: {exc}")
+
+    def _store_image_file(self, source_path):
+        if not source_path:
+            raise ValueError("No se pudo leer la ruta del archivo seleccionado")
+        source = Path(source_path)
+        if not source.exists():
+            raise ValueError("El archivo seleccionado no existe")
+        IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        safe_stem = re.sub(r"[^A-Za-z0-9_-]+", "-", source.stem).strip("-") or "imagen"
+        destination = IMAGE_UPLOAD_DIR / f"{safe_stem}-{uuid4().hex[:8]}{source.suffix.lower()}"
+        shutil.copy2(source, destination)
+        return str(destination.relative_to(BASE_DIR)).replace("\\", "/")
+
     def _build_crud_content(self):
         config = self.current_config
         actions = [
@@ -202,9 +361,13 @@ class BaseCrudView(ft.Container):
         self.form_controls = {}
         rows = []
         for field_name, field_type in self.current_config["fields"]:
-            control = self._build_field_control(field_name, field_type)
+            built_control = self._build_field_control(field_name, field_type)
+            if isinstance(built_control, tuple):
+                control, display_control = built_control
+            else:
+                control = display_control = built_control
             self.form_controls[field_name] = control
-            rows.append(ft.Container(col={"xs": 12, "md": 6}, content=control))
+            rows.append(ft.Container(col={"xs": 12, "md": 6}, content=display_control))
         controls = [
             ft.ResponsiveRow(spacing=12, run_spacing=12, controls=rows),
         ]
@@ -226,7 +389,7 @@ class BaseCrudView(ft.Container):
             modal=True,
             bgcolor="#FFFFFF",
             elevation=18,
-            shape=ft.RoundedRectangleBorder(radius=18),
+            shape=ft.RoundedRectangleBorder(radius=16),
             title=None,
             content_padding=0,
             actions_padding=ft.Padding(22, 12, 22, 18),
@@ -234,21 +397,21 @@ class BaseCrudView(ft.Container):
                 width=860,
                 height=form_height,
                 bgcolor="#FFFFFF",
-                border_radius=18,
+                border_radius=16,
                 content=ft.Column(
                     expand=True,
                     spacing=0,
                     controls=[
                         ft.Container(
                             padding=ft.Padding(24, 18, 18, 14),
-                            bgcolor="#111316",
-                            border_radius=ft.BorderRadius(18, 18, 0, 0),
+                            bgcolor=Tema.BG_SIDEBAR,
+                            border_radius=ft.BorderRadius(16, 16, 0, 0),
                             content=ft.Row(
                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 controls=[
                                     ft.Row(spacing=12, controls=[
-                                        ft.Container(width=42, height=42, border_radius=10, bgcolor=Tema.GOLD, alignment=ft.Alignment.CENTER, content=ft.Icon(ft.Icons.EDIT_DOCUMENT, color="#111316", size=22)),
+                                        ft.Container(width=42, height=42, border_radius=10, bgcolor=Tema.GOLD, alignment=ft.Alignment.CENTER, content=ft.Icon(ft.Icons.EDIT_DOCUMENT, color=Tema.TEXT_ON_GOLD, size=22)),
                                         ft.Column(spacing=2, controls=[
                                             ft.Text(title, size=18, weight=ft.FontWeight.W_800, color=Tema.TEXT_ON_DARK),
                                             ft.Text("Campos organizados para guardar rápido y sin perder contexto.", size=12, color=ft.Colors.with_opacity(0.78, Tema.TEXT_ON_DARK)),
@@ -267,12 +430,12 @@ class BaseCrudView(ft.Container):
                                 spacing=14,
                                 controls=[
                                     ft.Container(
-                                        bgcolor="#FFFBEB",
+                                        bgcolor=Tema.GOLD_SOFT,
                                         border_radius=8,
                                         padding=ft.Padding(12, 9, 12, 9),
                                         border=ft.Border(left=ft.BorderSide(3, Tema.GOLD)),
                                         content=ft.Row(spacing=8, controls=[
-                                            ft.Icon(ft.Icons.SEARCH_ROUNDED, color="#A16207", size=18),
+                                            ft.Icon(ft.Icons.SEARCH_ROUNDED, color=Tema.GOLD_DARK, size=18),
                                             ft.Text("En los desplegables puedes escribir para buscar.", size=12, color=Tema.TEXT_SECONDARY),
                                         ]),
                                     ),
@@ -400,33 +563,250 @@ class BaseCrudView(ft.Container):
                 db.close()
         except Exception as exc:
             return self._panel([ft.Text("No se pudo cargar esta tabla", color=Tema.ERROR, weight=ft.FontWeight.W_700), ft.Text(str(exc), color=Tema.TEXT_MUTED, size=12)])
+        if config["table"] == "imagenes_producto":
+            return self._image_cards_panel(rows_data)
         rows = []
         for item in rows_data:
             record = dict(item)
             rows.append(ft.DataRow(cells=[self._action_cell(record)] + [self._display_cell(record.get(col), col) for col in spec["columns"]]))
         return self._table_panel(f"{len(rows_data)} registros", ["Acciones"] + spec["headings"], rows)
 
+    def _image_cards_panel(self, rows_data):
+        records = [dict(item) for item in rows_data]
+        if not records:
+            return self._panel([
+                ft.Text("0 imágenes", size=14, color=Tema.TEXT_MUTED, weight=ft.FontWeight.W_700),
+                ft.Text("Aún no hay imágenes registradas.", color=Tema.TEXT_MUTED, size=12),
+            ])
+        cards = [ft.Container(col={"xs": 12, "sm": 6, "lg": 4, "xl": 3}, content=self._image_card(record)) for record in records]
+        return ft.Column(
+            expand=True,
+            scroll=ft.ScrollMode.AUTO,
+            spacing=14,
+            controls=[
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    controls=[
+                        ft.Text(f"{len(records)} imágenes", size=14, color=Tema.TEXT_MUTED, weight=ft.FontWeight.W_700),
+                        ft.Container(
+                            border_radius=20,
+                            bgcolor=Tema.GOLD_SOFT,
+                            padding=ft.Padding(10, 4, 10, 4),
+                            content=ft.Text("Galería visual", size=11, color=Tema.GOLD_DARK, weight=ft.FontWeight.W_700),
+                        ),
+                    ],
+                ),
+                ft.ResponsiveRow(spacing=16, run_spacing=16, controls=cards),
+            ],
+        )
+
+    def _image_card(self, record):
+        image_src = self._image_src(record.get("url_imagen"))
+        estado = "Activo" if record.get("es_principal") else "Inactivo"
+        estado_color = Tema.SUCCESS if record.get("es_principal") else Tema.ERROR
+        return ft.Container(
+            bgcolor=Tema.BG_CARD,
+            border_radius=16,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            border=ft.Border(
+                left=ft.BorderSide(1, Tema.BORDER_SOFT),
+                right=ft.BorderSide(1, Tema.BORDER_SOFT),
+                top=ft.BorderSide(1, Tema.BORDER_SOFT),
+                bottom=ft.BorderSide(1, Tema.BORDER_SOFT),
+            ),
+            shadow=ft.BoxShadow(blur_radius=22, color=ft.Colors.with_opacity(0.08, "#172033"), offset=ft.Offset(0, 9)),
+            content=ft.Column(
+                spacing=0,
+                controls=[
+                    ft.Container(
+                        height=238,
+                        bgcolor=Tema.BG_TABLE_HEAD,
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Image(src=image_src, fit="cover", width=999, height=238) if image_src else ft.Icon(ft.Icons.BROKEN_IMAGE_ROUNDED, color=Tema.TEXT_MUTED, size=46),
+                    ),
+                    ft.Container(
+                        padding=ft.Padding(12, 9, 12, 10),
+                        content=ft.Column(
+                            spacing=6,
+                            controls=[
+                                ft.Row(
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        ft.Text(record.get("producto") or "Producto sin nombre", size=13, weight=ft.FontWeight.W_800, color=Tema.TEXT_PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                                        ft.Container(border_radius=20, bgcolor=ft.Colors.with_opacity(0.10, estado_color), padding=ft.Padding(7, 2, 7, 2), content=ft.Text(estado, size=9, weight=ft.FontWeight.W_800, color=estado_color)),
+                                    ],
+                                ),
+                                ft.Row(
+                                    spacing=8,
+                                    controls=[
+                                        ft.Text(f"Color: {record.get('color') or 'Sin color'}", size=11, color=Tema.TEXT_SECONDARY, expand=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                        ft.Text(f"Orden: {record.get('orden')}", size=11, color=Tema.TEXT_MUTED),
+                                    ],
+                                ),
+                                ft.Text(str(record.get("url_imagen") or "Sin ruta"), size=10, color=Tema.TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, selectable=True),
+                                ft.Row(
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        ft.Row(
+                                            spacing=4,
+                                            controls=[
+                                                ft.IconButton(icon=ft.Icons.EDIT_ROUNDED, icon_color=Tema.GOLD, tooltip="Editar", width=34, height=34, icon_size=18, on_click=lambda _, rec=record: self._edit_record(rec)),
+                                                ft.IconButton(icon=ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=Tema.ERROR, tooltip="Eliminar", width=34, height=34, icon_size=18, on_click=lambda _, rec=record: self._confirm_delete(rec)),
+                                            ],
+                                        ),
+                                        self._boolean_switch(record, "es_principal"),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ),
+                ],
+            ),
+        )
+
+    def _image_src(self, value):
+        if not value:
+            return None
+        text_value = str(value)
+        if text_value.startswith(("http://", "https://")):
+            return text_value
+        image_path = Path(text_value)
+        if not image_path.is_absolute():
+            image_path = BASE_DIR / image_path
+        return str(image_path)
+
     def _action_cell(self, record):
+        bool_field = self._boolean_field()
+        actions = [
+            ft.IconButton(
+                icon=ft.Icons.EDIT_ROUNDED,
+                icon_color=Tema.GOLD,
+                tooltip="Editar",
+                on_click=lambda _, rec=record: self._edit_record(rec),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                icon_color=Tema.ERROR,
+                tooltip="Eliminar",
+                on_click=lambda _, rec=record: self._confirm_delete(rec),
+            ),
+        ]
+        if bool_field and bool_field in record:
+            actions.append(self._boolean_switch(record, bool_field))
         return ft.DataCell(
             ft.Row(
                 spacing=6,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.IconButton(
-                        icon=ft.Icons.EDIT_ROUNDED,
-                        icon_color=Tema.GOLD,
-                        tooltip="Editar",
-                        on_click=lambda _, rec=record: self._edit_record(rec),
-                    ),
-                    ft.IconButton(
-                        icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
-                        icon_color=Tema.ERROR,
-                        tooltip="Eliminar",
-                        on_click=lambda _, rec=record: self._confirm_delete(rec),
-                    ),
-                ],
+                controls=actions,
             )
         )
+
+    def _boolean_field(self):
+        if not self.current_config:
+            return None
+        bool_fields = [name for name, field_type in self.current_config["fields"] if field_type == "bool"]
+        return bool_fields[-1] if bool_fields else None
+
+    def _boolean_switch(self, record, field_name):
+        current_value = bool(record.get(field_name))
+        return ft.Container(
+            width=42,
+            height=28,
+            alignment=ft.Alignment.CENTER,
+            content=ft.Switch(
+                value=current_value,
+                active_color=Tema.SUCCESS,
+                inactive_thumb_color=Tema.ERROR,
+                scale=0.72,
+                tooltip="Activar / desactivar",
+                on_change=lambda event, rec=record, field=field_name, previous=current_value: self._confirm_boolean_toggle(rec, field, event.control.value, previous),
+            ),
+        )
+
+    def _confirm_boolean_toggle(self, record, field_name, new_value, previous_value):
+        record_id = record.get(self.current_config["pk"])
+        action = "activar" if new_value else "desactivar"
+        label = self._record_title(record)
+        dialog = ft.AlertDialog(
+            modal=True,
+            bgcolor="#FFFFFF",
+            elevation=18,
+            shape=ft.RoundedRectangleBorder(radius=16),
+            title=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                spacing=10,
+                controls=[
+                    ft.Row(
+                        spacing=10,
+                        controls=[
+                            ft.Icon(ft.Icons.TASK_ALT_ROUNDED if new_value else ft.Icons.BLOCK_ROUNDED, color=Tema.SUCCESS if new_value else Tema.ERROR),
+                            ft.Text(f"Confirmar {action}", color=Tema.TEXT_PRIMARY, weight=ft.FontWeight.W_800),
+                        ],
+                    ),
+                    ft.IconButton(icon=ft.Icons.CLOSE_ROUNDED, tooltip="Cerrar", on_click=lambda _: self._cancel_boolean_toggle(dialog)),
+                ],
+            ),
+            content=ft.Container(
+                width=460,
+                content=ft.Column(
+                    tight=True,
+                    spacing=12,
+                    controls=[
+                        ft.Text(f"¿Seguro que quieres {action} este registro?", size=13, color=Tema.TEXT_SECONDARY),
+                        ft.Container(
+                            bgcolor="#F8FAFC",
+                            border_radius=8,
+                            padding=ft.Padding(12, 10, 12, 10),
+                            border=ft.Border(left=ft.BorderSide(3, Tema.SUCCESS if new_value else Tema.ERROR)),
+                            content=ft.Text(label, size=13, weight=ft.FontWeight.W_700, color=Tema.TEXT_PRIMARY, selectable=True),
+                        ),
+                    ],
+                ),
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda _: self._cancel_boolean_toggle(dialog)),
+                ft.FilledButton(
+                    "Confirmar",
+                    icon=ft.Icons.CHECK_ROUNDED,
+                    on_click=lambda _: self._apply_boolean_toggle(dialog, record_id, field_name, new_value),
+                    style=ft.ButtonStyle(
+                        bgcolor={ft.ControlState.DEFAULT: Tema.SUCCESS if new_value else Tema.ERROR},
+                        color=ft.Colors.WHITE,
+                        shape=ft.RoundedRectangleBorder(radius=10),
+                    ),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        dialog.open = True
+        if dialog not in self.page.overlay:
+            self.page.overlay.append(dialog)
+        self.page.update()
+
+    def _cancel_boolean_toggle(self, dialog):
+        self._close_dialog(dialog)
+        self._build_crud_content()
+
+    def _apply_boolean_toggle(self, dialog, record_id, field_name, new_value):
+        try:
+            db = SessionLocal()
+            try:
+                db.execute(
+                    text(f"UPDATE {self.current_config['table']} SET {field_name} = :value WHERE {self.current_config['pk']} = :id"),
+                    {"value": bool(new_value), "id": record_id},
+                )
+                db.commit()
+            finally:
+                db.close()
+            self._close_dialog(dialog)
+            self._build_crud_content()
+            estado = "activado" if new_value else "desactivado"
+            self._show_message("Cambio confirmado", f"{self.current_config['label']} {estado} correctamente", Tema.SUCCESS)
+        except Exception as exc:
+            self._close_dialog(dialog)
+            self._show_message("No se pudo cambiar el estado", str(exc), Tema.ERROR)
 
     def _text_cell(self, value, column_name=None):
         if column_name and "url" in column_name and value:
@@ -434,6 +814,27 @@ class BaseCrudView(ft.Container):
         return ft.DataCell(ft.Text(self._display(value), color=Tema.TEXT_SECONDARY, size=12, selectable=True))
 
     def _display_cell(self, value, column_name=None):
+        if column_name == "codigo_hex" and value:
+            return ft.DataCell(
+                ft.Row(
+                    spacing=8,
+                    controls=[
+                        ft.Container(
+                            width=18,
+                            height=18,
+                            border_radius=4,
+                            bgcolor=str(value),
+                            border=ft.Border(
+                                left=ft.BorderSide(1, Tema.BORDER),
+                                right=ft.BorderSide(1, Tema.BORDER),
+                                top=ft.BorderSide(1, Tema.BORDER),
+                                bottom=ft.BorderSide(1, Tema.BORDER),
+                            ),
+                        ),
+                        ft.Text(self._display(value), color=Tema.TEXT_SECONDARY, size=12, selectable=True),
+                    ],
+                )
+            )
         if column_name and any(token in column_name for token in ("estado", "status", "principal")):
             return self._status_cell(value)
         return self._text_cell(value, column_name)
@@ -447,7 +848,7 @@ class BaseCrudView(ft.Container):
             bg = "#ECFDF3"
         elif text_value in ("Stock bajo", "Pendiente", "En preparación", "En tránsito"):
             color = Tema.WARNING
-            bg = "#FFF7E8"
+            bg = Tema.GOLD_SOFT
         elif text_value in ("Agotado", "Inactivo", "No", "Cancelado", "Novedad"):
             color = Tema.ERROR
             bg = "#FEF3F2"
@@ -666,7 +1067,19 @@ class BaseCrudView(ft.Container):
         return f"{self.current_config['label']} #{record.get(self.current_config['pk'])}"
 
     def _panel(self, controls):
-        return ft.Container(bgcolor=Tema.BG_CARD, border_radius=10, padding=18, border=ft.Border(left=ft.BorderSide(1, Tema.BORDER_SOFT), right=ft.BorderSide(1, Tema.BORDER_SOFT), top=ft.BorderSide(1, Tema.BORDER_SOFT), bottom=ft.BorderSide(1, Tema.BORDER_SOFT)), shadow=ft.BoxShadow(blur_radius=18, color=ft.Colors.with_opacity(0.07, ft.Colors.BLACK), offset=ft.Offset(0, 7)), content=ft.Column(spacing=10, controls=controls))
+        return ft.Container(
+            bgcolor=Tema.BG_CARD,
+            border_radius=14,
+            padding=18,
+            border=ft.Border(
+                left=ft.BorderSide(1, Tema.BORDER_SOFT),
+                right=ft.BorderSide(1, Tema.BORDER_SOFT),
+                top=ft.BorderSide(1, Tema.BORDER_SOFT),
+                bottom=ft.BorderSide(1, Tema.BORDER_SOFT),
+            ),
+            shadow=ft.BoxShadow(blur_radius=22, color=ft.Colors.with_opacity(0.08, "#172033"), offset=ft.Offset(0, 9)),
+            content=ft.Column(spacing=10, controls=controls),
+        )
 
     def _table_panel(self, title, headings, rows):
         if not rows:
@@ -678,20 +1091,20 @@ class BaseCrudView(ft.Container):
             controls=[
                 ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
                     ft.Text(title, size=14, color=Tema.TEXT_MUTED, weight=ft.FontWeight.W_700),
-                    ft.Container(border_radius=20, bgcolor="#FFFBEB", padding=ft.Padding(10, 4, 10, 4), content=ft.Text("Tabla operativa", size=11, color="#A16207", weight=ft.FontWeight.W_700)),
+                    ft.Container(border_radius=20, bgcolor=Tema.GOLD_SOFT, padding=ft.Padding(10, 4, 10, 4), content=ft.Text("Tabla operativa", size=11, color=Tema.GOLD_DARK, weight=ft.FontWeight.W_700)),
                 ]),
                 ft.Container(
                     bgcolor=Tema.BG_CARD,
-                    border_radius=12,
+                    border_radius=16,
                     padding=16,
                     border=ft.Border(left=ft.BorderSide(1, Tema.BORDER_SOFT), right=ft.BorderSide(1, Tema.BORDER_SOFT), top=ft.BorderSide(1, Tema.BORDER_SOFT), bottom=ft.BorderSide(1, Tema.BORDER_SOFT)),
-                    shadow=ft.BoxShadow(blur_radius=18, color=ft.Colors.with_opacity(0.06, ft.Colors.BLACK), offset=ft.Offset(0, 7)),
+                    shadow=ft.BoxShadow(blur_radius=24, color=ft.Colors.with_opacity(0.08, "#172033"), offset=ft.Offset(0, 10)),
                     content=ft.Row(scroll=ft.ScrollMode.AUTO, controls=[
                         ft.DataTable(
                             columns=[ft.DataColumn(ft.Text(label, color=Tema.TEXT_SECONDARY, size=12, weight=ft.FontWeight.W_800)) for label in headings],
                             rows=rows,
-                            heading_row_color=ft.Colors.with_opacity(0.94, "#F8FAFC"),
-                            data_row_color={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.62, "#FFF7E0")},
+                            heading_row_color=ft.Colors.with_opacity(0.96, Tema.BG_TABLE_HEAD),
+                            data_row_color={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.70, "#FFF4D8")},
                             divider_thickness=0.7,
                             column_spacing=28,
                         )
@@ -719,7 +1132,7 @@ class BaseCrudView(ft.Container):
             "id_respuesta_bold": "Respuesta Bold",
             "estado_producto": "Estado producto",
             "is_active": "Estado",
-            "es_principal": "Principal",
+            "es_principal": "Estado" if self.current_config and self.current_config.get("table") == "imagenes_producto" else "Principal",
             "estado": "Estado",
         }
         return labels.get(value, value.replace("id_", "").replace("_", " ").capitalize())
@@ -788,7 +1201,7 @@ class BaseCrudView(ft.Container):
             return "#FEF3F2"
         if color == Tema.SUCCESS:
             return "#ECFDF3"
-        return "#FFF7E8"
+        return Tema.GOLD_SOFT
 
     def _feedback_border(self, color):
         if color == Tema.ERROR:
