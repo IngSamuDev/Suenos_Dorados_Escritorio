@@ -36,7 +36,24 @@ DESCUENTOS_DISPLAY_QUERIES = {'descuentos': {'columns': ['codigo', 'producto', '
 
 
 class DescuentosCrudMixin:
+    def _deactivate_expired_discounts(self):
+        try:
+            db = SessionLocal()
+            try:
+                db.execute(text("""
+                    UPDATE descuentos
+                    SET is_active = FALSE
+                    WHERE is_active = TRUE
+                      AND fecha_fin < CURRENT_DATE
+                """))
+                db.commit()
+            finally:
+                db.close()
+        except Exception:
+            pass
+
     def _load_discounts_table(self, config):
+        self._deactivate_expired_discounts()
         spec = self.display_queries["descuentos"]
         search_value = (self.search_field.value or "").strip() if self.search_field else ""
         where_sql = ""

@@ -117,16 +117,8 @@ class DashboardView(ft.Container):
 
     def _brand(self):
         return ft.Container(
-            padding=ft.Padding(10, 10, 10, 12),
-            bgcolor="#202B43",
-            border_radius=14,
-            border=ft.Border(
-                left=ft.BorderSide(1, "#33415F"),
-                right=ft.BorderSide(1, "#33415F"),
-                top=ft.BorderSide(1, "#33415F"),
-                bottom=ft.BorderSide(1, "#33415F"),
-            ),
-            shadow=ft.BoxShadow(blur_radius=16, color=ft.Colors.with_opacity(0.16, ft.Colors.BLACK), offset=ft.Offset(0, 8)),
+            padding=ft.Padding(8, 8, 8, 12),
+            bgcolor=None,
             content=ft.Row(
                 spacing=10,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,

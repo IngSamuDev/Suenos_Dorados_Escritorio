@@ -58,7 +58,7 @@ class SalesController:
             )
         """))
 
-    def _discount_order_stock_once(self, pedido: Pedido) -> bool:
+    def discount_order_stock_once(self, pedido: Pedido) -> bool:
         referencia = f"PEDIDO-{pedido.id_pedido}"
         already_discounted = self.db.query(MovimientoInventario.id_movimiento).filter(
             MovimientoInventario.referencia_documento == referencia,
@@ -89,21 +89,18 @@ class SalesController:
             ))
         return True
 
+    def ensure_order_stock_discounted(self, pedido_id: int) -> bool:
+        self._ensure_kardex_table()
+        pedido = self.db.query(Pedido).filter(Pedido.id_pedido == pedido_id).with_for_update().one_or_none()
+        if not pedido:
+            raise ValueError("Pedido no encontrado")
+        return self.discount_order_stock_once(pedido)
+
     def approve_payment(self, pedido_id: int, metodo_pago: str = "Bold", estado_destino: str = "Pagado") -> Pedido:
         """Aprueba o despacha un pedido, descuenta stock una sola vez y registra Kardex."""
         try:
             self._ensure_kardex_table()
-            pedido = (
-                self.db.query(Pedido)
-                .options(
-                    joinedload(Pedido.detalles)
-                    .joinedload(DetallePedido.variante)
-                    .joinedload(VarianteProducto.producto)
-                )
-                .filter(Pedido.id_pedido == pedido_id)
-                .with_for_update()
-                .one_or_none()
-            )
+            pedido = self.db.query(Pedido).filter(Pedido.id_pedido == pedido_id).with_for_update().one_or_none()
             if not pedido:
                 raise ValueError("Pedido no encontrado")
 
@@ -115,7 +112,7 @@ class SalesController:
             if not target_state:
                 raise ValueError(f"No existe el estado {estado_destino}")
 
-            discounted = self._discount_order_stock_once(pedido)
+            discounted = self.discount_order_stock_once(pedido)
             pedido.estado = target_state
             if not pedido.pago:
                 self.db.add(Pago(id_pedido=pedido.id_pedido, monto=pedido.total, metodo_pago=metodo_pago))
@@ -138,5 +135,3 @@ class SalesController:
         if estado_destino == "Pagado" or discounted:
             generate_invoice_pdf(pedido)
         return pedido
-
-

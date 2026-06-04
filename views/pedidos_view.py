@@ -1,11 +1,16 @@
 from decimal import Decimal
+import os
 
 import flet as ft
 from sqlalchemy import text
+from sqlalchemy.orm import joinedload
 
 from controllers.pedidos_controller import PedidosController
 from controllers.ventas_controller import SalesController
 from database import SessionLocal
+from models.catalogo_model import VarianteProducto
+from models.ventas_model import DetallePedido, Pedido
+from utils.pdf_generator import generate_invoice_pdf
 from utils.theme import Tema
 from views.crud_base_view import BaseCrudView
 
@@ -48,31 +53,44 @@ PEDIDOS_GROUP = {'title': 'Pedidos y pagos',
                         ('amount', 'decimal'),
                         ('timestamp_bold', 'str'),
                         ('raw_response', 'str')]}]}
-PEDIDOS_DISPLAY_QUERIES = {'pedidos': {'columns': ['cliente',
+PEDIDOS_DISPLAY_QUERIES = {'pedidos': {'columns': ['id_pedido',
+                         'cliente',
                          'estado',
                          'direccion',
+                         'productos',
                          'subtotal',
                          'descuento',
                          'costo_envio',
                          'total',
                          'fecha_pedido'],
-             'headings': ['Cliente', 'Estado', 'Dirección', 'Subtotal', 'Descuento aplicado', 'Envío', 'Total', 'Fecha'],
+             'headings': ['ID', 'Cliente', 'Estado', 'Dirección', 'Productos', 'Subtotal', 'Descuento aplicado', 'Envío', 'Total', 'Fecha'],
              'select': '\n'
                        '            SELECT p.id_pedido, p.id_usuario, p.id_direccion, p.id_estado_pedido, '
                        'p.fecha_pedido,\n'
                        '                   p.subtotal, p.descuento, p.costo_envio, p.total,\n'
                        "                   CONCAT(u.nombre_usuario, ' ', u.apellido_usuario) AS cliente,\n"
                        '                   ep.descripcion_estado AS estado,\n'
-                       '                   d.descripcion_direccion AS direccion\n'
+                       '                   d.descripcion_direccion AS direccion,\n'
+                       "                   COALESCE(productos.resumen, 'Sin productos') AS productos\n"
                        '            FROM pedidos p\n'
                        '            LEFT JOIN usuarios u ON u.id_usuario = p.id_usuario\n'
                        '            LEFT JOIN estado_pedido ep ON ep.id_estado_pedido = p.id_estado_pedido\n'
                        '            LEFT JOIN direcciones d ON d.id_direccion = p.id_direccion\n'
+                       '            LEFT JOIN (\n'
+                       '                SELECT dp.id_pedido,\n'
+                       "                       STRING_AGG(CONCAT(pr.nombre_producto, ' x', dp.cantidad), ', ' ORDER BY pr.nombre_producto) AS resumen\n"
+                       '                FROM detalle_pedido dp\n'
+                       '                LEFT JOIN variantes_producto v ON v.id_variante = dp.id_variante\n'
+                       '                LEFT JOIN productos pr ON pr.id_producto = v.id_producto\n'
+                       '                GROUP BY dp.id_pedido\n'
+                       '            ) productos ON productos.id_pedido = p.id_pedido\n'
                        '        ',
-             'search': ['u.nombre_usuario',
+             'search': ['CAST(p.id_pedido AS TEXT)',
+                        'u.nombre_usuario',
                         'u.apellido_usuario',
                         'ep.descripcion_estado',
                         'd.descripcion_direccion',
+                        'productos.resumen',
                         'CAST(p.total AS TEXT)',
                         'CAST(p.fecha_pedido AS TEXT)'],
              'order': 'p.id_pedido'},
@@ -141,6 +159,272 @@ class PedidosView(BaseCrudView):
         self.controller = PedidosController()
         super().__init__(self.controller.group_id, PEDIDOS_GROUP, PEDIDOS_DISPLAY_QUERIES)
 
+    def _load_display_table(self, config):
+        if config["table"] != "pedidos":
+            return super()._load_display_table(config)
+        spec = self.display_queries["pedidos"]
+        search_value = (self.search_field.value or "").strip() if self.search_field else ""
+        where_sql = ""
+        params = {}
+        if search_value:
+            where_sql = " WHERE " + " OR ".join(f"{col} ILIKE :search" if not col.startswith("CAST(") else f"{col} ILIKE :search" for col in spec["search"])
+            params["search"] = f"%{search_value}%"
+        sql = f"{spec['select']} {where_sql} ORDER BY {spec['order']} DESC LIMIT 35"
+        try:
+            db = SessionLocal()
+            try:
+                rows_data = db.execute(text(sql), params).mappings().all()
+            finally:
+                db.close()
+        except Exception as exc:
+            return self._panel([ft.Text("No se pudo cargar pedidos", color=Tema.ERROR, weight=ft.FontWeight.W_700), ft.Text(str(exc), color=Tema.TEXT_MUTED, size=12)])
+
+        rows = []
+        for item in rows_data:
+            record = dict(item)
+            rows.append(
+                ft.DataRow(
+                    cells=[
+                        self._order_action_cell(record),
+                        self._text_cell(record.get("id_pedido")),
+                        self._text_cell(record.get("cliente")),
+                        ft.DataCell(self._order_state_menu(record)),
+                        self._text_cell(record.get("direccion")),
+                        self._text_cell(record.get("productos")),
+                        self._text_cell(record.get("subtotal")),
+                        self._text_cell(record.get("descuento")),
+                        self._text_cell(record.get("costo_envio")),
+                        self._text_cell(record.get("total")),
+                        self._text_cell(record.get("fecha_pedido")),
+                    ]
+                )
+            )
+        return self._table_panel(f"{len(rows_data)} registros", ["Acciones"] + spec["headings"], rows)
+
+    def _order_action_cell(self, record):
+        return ft.DataCell(
+            ft.Row(
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.IconButton(
+                        icon=ft.Icons.EDIT_ROUNDED,
+                        icon_color=Tema.GOLD,
+                        tooltip="Editar",
+                        on_click=lambda _, rec=record: self._edit_record(rec),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                        icon_color=Tema.ERROR,
+                        tooltip="Eliminar",
+                        on_click=lambda _, rec=record: self._confirm_delete(rec),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.RECEIPT_LONG_ROUNDED,
+                        icon_color=Tema.INFO,
+                        tooltip="Ver factura",
+                        on_click=lambda _, rec=record: self._open_invoice(rec),
+                    ),
+                ],
+            )
+        )
+
+    def _open_invoice(self, record):
+        order_id = record.get("id_pedido")
+        if not order_id:
+            self._snack("No se pudo identificar el pedido", Tema.WARNING)
+            return
+        try:
+            db = SessionLocal()
+            try:
+                pedido = (
+                    db.query(Pedido)
+                    .options(
+                        joinedload(Pedido.usuario),
+                        joinedload(Pedido.direccion),
+                        joinedload(Pedido.estado),
+                        joinedload(Pedido.pago),
+                        joinedload(Pedido.detalles)
+                        .joinedload(DetallePedido.variante)
+                        .joinedload(VarianteProducto.producto),
+                        joinedload(Pedido.detalles)
+                        .joinedload(DetallePedido.variante)
+                        .joinedload(VarianteProducto.medida),
+                        joinedload(Pedido.detalles)
+                        .joinedload(DetallePedido.variante)
+                        .joinedload(VarianteProducto.color),
+                    )
+                    .filter(Pedido.id_pedido == int(order_id))
+                    .one_or_none()
+                )
+                if not pedido:
+                    raise ValueError("Pedido no encontrado")
+                invoice_path = generate_invoice_pdf(pedido)
+            finally:
+                db.close()
+            os.startfile(str(invoice_path))
+            self._snack("Factura abierta correctamente", Tema.SUCCESS)
+        except Exception as exc:
+            self._show_message("No se pudo abrir la factura", str(exc), Tema.ERROR)
+
+    def _order_state_options(self):
+        try:
+            db = SessionLocal()
+            try:
+                rows = db.execute(text("SELECT id_estado_pedido, descripcion_estado FROM estado_pedido ORDER BY id_estado_pedido")).mappings().all()
+            finally:
+                db.close()
+        except Exception:
+            return []
+        return [ft.dropdown.Option(key=str(row["id_estado_pedido"]), text=row["descripcion_estado"]) for row in rows]
+
+    def _order_state_menu(self, record):
+        current_state_id = str(record.get("id_estado_pedido") or "")
+        items = []
+        for option in self._order_state_options():
+            items.append(
+                ft.PopupMenuItem(
+                    content=ft.Row(
+                        spacing=8,
+                        controls=[
+                            ft.Icon(ft.Icons.CHECK_ROUNDED if option.key == current_state_id else ft.Icons.CIRCLE_OUTLINED, color=Tema.GOLD if option.key == current_state_id else Tema.TEXT_MUTED, size=16),
+                            ft.Text(option.text, size=12, color=Tema.TEXT_PRIMARY, weight=ft.FontWeight.W_700 if option.key == current_state_id else ft.FontWeight.W_500),
+                        ],
+                    ),
+                    height=38,
+                    on_click=lambda _, rec=record, state_id=option.key, state_text=option.text: self._confirm_order_state_change(rec, state_id, state_text),
+                )
+            )
+        return ft.PopupMenuButton(
+            menu_position=ft.PopupMenuPosition.UNDER,
+            bgcolor="#FFFFFF",
+            elevation=10,
+            items=items,
+            content=ft.Container(
+                width=152,
+                border_radius=9,
+                bgcolor=self._order_state_bg(record.get("estado")),
+                border=ft.Border(
+                    left=ft.BorderSide(1, self._order_state_border(record.get("estado"))),
+                    right=ft.BorderSide(1, self._order_state_border(record.get("estado"))),
+                    top=ft.BorderSide(1, self._order_state_border(record.get("estado"))),
+                    bottom=ft.BorderSide(1, self._order_state_border(record.get("estado"))),
+                ),
+                padding=ft.Padding(10, 7, 8, 7),
+                content=ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Text(record.get("estado") or "Sin estado", size=12, color=self._order_state_color(record.get("estado")), weight=ft.FontWeight.W_800, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN_ROUNDED, size=16, color=self._order_state_color(record.get("estado"))),
+                    ],
+                ),
+            ),
+        )
+
+    def _order_state_color(self, state):
+        if state in ("Cancelado", "Reembolsado"):
+            return Tema.ERROR
+        if state in ("Entregado", "Pagado"):
+            return Tema.SUCCESS
+        if state in ("Despachado",):
+            return Tema.INFO
+        return Tema.GOLD_DARK
+
+    def _order_state_bg(self, state):
+        return ft.Colors.with_opacity(0.10, self._order_state_color(state))
+
+    def _order_state_border(self, state):
+        return ft.Colors.with_opacity(0.24, self._order_state_color(state))
+
+    def _confirm_order_state_change(self, record, state_id, description):
+        if not state_id or int(state_id) == int(record.get("id_estado_pedido") or 0):
+            return
+        dialog = ft.AlertDialog(
+            modal=True,
+            bgcolor="#FFFFFF",
+            elevation=18,
+            shape=ft.RoundedRectangleBorder(radius=16),
+            title=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    ft.Row(spacing=10, controls=[
+                        ft.Icon(ft.Icons.SWAP_HORIZ_ROUNDED, color=Tema.INFO),
+                        ft.Text("Cambiar estado", color=Tema.TEXT_PRIMARY, weight=ft.FontWeight.W_800),
+                    ]),
+                    ft.IconButton(icon=ft.Icons.CLOSE_ROUNDED, tooltip="Cerrar", on_click=lambda _: self._close_dialog(dialog)),
+                ],
+            ),
+            content=ft.Container(
+                width=460,
+                content=ft.Column(
+                    tight=True,
+                    spacing=12,
+                    controls=[
+                        ft.Text("Confirma el nuevo estado del pedido.", size=13, color=Tema.TEXT_SECONDARY),
+                        ft.Container(
+                            bgcolor="#F8FAFC",
+                            border_radius=8,
+                            padding=ft.Padding(12, 10, 12, 10),
+                            border=ft.Border(left=ft.BorderSide(3, self._order_state_color(description))),
+                            content=ft.Text(f"Pedido #{record.get('id_pedido')} -> {description}", size=13, weight=ft.FontWeight.W_700, color=Tema.TEXT_PRIMARY, selectable=True),
+                        ),
+                    ],
+                ),
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda _: self._close_dialog(dialog)),
+                ft.FilledButton(
+                    "Confirmar",
+                    icon=ft.Icons.CHECK_ROUNDED,
+                    on_click=lambda _: self._update_order_state_from_menu(dialog, record, state_id),
+                    style=ft.ButtonStyle(
+                        bgcolor={ft.ControlState.DEFAULT: Tema.INFO, ft.ControlState.HOVERED: "#1D5ED8"},
+                        color=ft.Colors.WHITE,
+                        shape=ft.RoundedRectangleBorder(radius=10),
+                    ),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        dialog.open = True
+        if dialog not in self.page.overlay:
+            self.page.overlay.append(dialog)
+        self.page.update()
+
+    def _update_order_state_from_menu(self, dialog, record, state_id):
+        self._close_dialog(dialog)
+        self._update_order_state(record, state_id)
+
+    def _update_order_state(self, record, state_id):
+        if not state_id:
+            return
+        order_id = record.get("id_pedido")
+        try:
+            db = SessionLocal()
+            try:
+                description = db.execute(
+                    text("SELECT descripcion_estado FROM estado_pedido WHERE id_estado_pedido = :id"),
+                    {"id": int(state_id)},
+                ).scalar()
+                if not description:
+                    raise ValueError("Estado no encontrado")
+                if description in ("Pagado", "Despachado"):
+                    SalesController(db).approve_payment(order_id, estado_destino=description)
+                else:
+                    db.execute(
+                        text("UPDATE pedidos SET id_estado_pedido = :state_id WHERE id_pedido = :order_id"),
+                        {"state_id": int(state_id), "order_id": order_id},
+                    )
+                    db.commit()
+            finally:
+                db.close()
+            self._build_crud_content()
+            self._snack("Estado del pedido actualizado", Tema.SUCCESS)
+        except Exception as exc:
+            self._build_crud_content()
+            self._show_message("Error al cambiar estado", str(exc), Tema.ERROR)
+
     def _build_form_rows(self):
         if self.current_config["table"] != "pedidos":
             return super()._build_form_rows()
@@ -157,6 +441,10 @@ class PedidosView(BaseCrudView):
                 self.shipping_control = control
                 control.on_change = lambda _: self._recalculate_order_totals()
             self.form_controls[field_name] = control
+
+        if "id_usuario" in self.form_controls:
+            self.form_controls["id_usuario"].on_select = lambda _: self._set_default_address_for_selected_user()
+            self.form_controls["id_usuario"].on_change = lambda _: self._set_default_address_for_selected_user()
 
         self.subtotal_control = self._money_summary_field("Subtotal")
         self.discount_total_control = self._money_summary_field("Descuento")
@@ -182,6 +470,41 @@ class PedidosView(BaseCrudView):
                 ft.Container(col={"xs": 12, "md": 4}, content=self.total_control),
             ]),
         ]
+
+    def _set_default_address_for_selected_user(self):
+        user_id = self._field_value("id_usuario") if "id_usuario" in self.form_controls else None
+        if not user_id:
+            return
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError):
+            return
+        address_control = self.form_controls.get("id_direccion")
+        if address_control is None:
+            return
+        try:
+            db = SessionLocal()
+            try:
+                row = db.execute(text("""
+                    SELECT id_direccion
+                    FROM direcciones
+                    WHERE id_usuario = :user_id
+                    ORDER BY es_principal DESC, id_direccion DESC
+                    LIMIT 1
+                """), {"user_id": user_id}).mappings().first()
+            finally:
+                db.close()
+        except Exception:
+            return
+        if not row:
+            address_control.value = ""
+            self._snack("Este usuario no tiene direcciones registradas", Tema.WARNING)
+        else:
+            address_control.value = str(row["id_direccion"])
+        try:
+            address_control.update()
+        except RuntimeError:
+            pass
 
     def _money_summary_field(self, label):
         return ft.TextField(
@@ -256,7 +579,7 @@ class PedidosView(BaseCrudView):
                     JOIN productos p ON p.id_producto = v.id_producto
                     LEFT JOIN colores c ON c.id_color = v.id_color
                     LEFT JOIN medidas m ON m.id_medida = v.id_medida
-                    WHERE v.estado = TRUE AND p.estado_producto = TRUE
+                    WHERE v.estado = TRUE AND p.estado_producto = TRUE AND v.stock > 0
                     ORDER BY p.nombre_producto ASC, v.sku ASC
                     LIMIT 300
                 """)).mappings().all()
@@ -270,8 +593,8 @@ class PedidosView(BaseCrudView):
             label = f"{row['nombre_producto']} - {row['sku']}"
             if extra:
                 label += f" - {extra}"
-            label += f" - ${float(row['precio'] or 0):,.0f}"
-            data[key] = {"price": Decimal(row["precio"] or 0), "label": label}
+            label += f" - ${float(row['precio'] or 0):,.0f} - Stock {row['stock']}"
+            data[key] = {"price": Decimal(row["precio"] or 0), "label": label, "stock": int(row["stock"] or 0)}
         return data
 
     def _variant_options(self):
@@ -286,6 +609,13 @@ class PedidosView(BaseCrudView):
         try:
             db = SessionLocal()
             try:
+                db.execute(text("""
+                    UPDATE descuentos
+                    SET is_active = FALSE
+                    WHERE is_active = TRUE
+                      AND fecha_fin < CURRENT_DATE
+                """))
+                db.commit()
                 rows = db.execute(text("""
                     SELECT d.id, d.codigo, d.porcentaje_descuento, p.nombre_producto
                     FROM descuentos d
@@ -429,6 +759,7 @@ class PedidosView(BaseCrudView):
                 if values[required] in (None, ""):
                     raise ValueError(f"El campo {self._pretty(required)} es obligatorio")
             details = []
+            requested_stock = {}
             for row in self.order_item_rows:
                 variant_id = row["product"].value
                 if not variant_id:
@@ -436,6 +767,12 @@ class PedidosView(BaseCrudView):
                 qty = int(str(row["qty"].value or "0"))
                 if qty <= 0:
                     raise ValueError("La cantidad de cada producto debe ser mayor a cero")
+                variant_data = self.variant_prices.get(str(variant_id))
+                if not variant_data:
+                    raise ValueError("El producto seleccionado ya no está disponible")
+                requested_stock[str(variant_id)] = requested_stock.get(str(variant_id), 0) + qty
+                if requested_stock[str(variant_id)] > variant_data["stock"]:
+                    raise ValueError(f"Stock insuficiente para {variant_data['label']}. Disponible: {variant_data['stock']}")
                 price = self._decimal_from_control(row["price"])
                 percent = self._decimal_from_control(row["discount"])
                 unit_price = (price * (Decimal("1") - (percent / Decimal("100")))).quantize(Decimal("0.01"))
@@ -470,6 +807,7 @@ class PedidosView(BaseCrudView):
                         INSERT INTO detalle_pedido (id_pedido, id_variante, cantidad, precio_unitario)
                         VALUES (:id_pedido, :id_variante, :cantidad, :precio_unitario)
                     """), {"id_pedido": pedido_id, **detail})
+                SalesController(db).ensure_order_stock_discounted(pedido_id)
                 db.commit()
             except Exception:
                 db.rollback()

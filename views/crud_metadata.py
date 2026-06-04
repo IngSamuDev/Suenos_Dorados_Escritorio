@@ -12,6 +12,14 @@ LOOKUP_CONFIG = {'id_rol': {'table': 'roles', 'pk': 'id_rol', 'columns': ['descr
                   'columns': ['descripcion_direccion', 'descripcion_municipio']},
  'id_estado_pedido': {'table': 'estado_pedido', 'pk': 'id_estado_pedido', 'columns': ['descripcion_estado']},
  'id_estado_envio': {'table': 'estado_envio', 'pk': 'id_estado_envio', 'columns': ['descripcion_estado']},
- 'id_pedido': {'table': 'pedidos', 'pk': 'id_pedido', 'columns': ['total']},
+ 'id_pedido': {'table': 'pedidos',
+               'pk': 'id_pedido',
+               'columns': ['id_pedido', 'nombre_usuario', 'apellido_usuario'],
+               'select': """
+                   SELECT p.id_pedido, u.nombre_usuario, u.apellido_usuario
+                   FROM pedidos p
+                   LEFT JOIN usuarios u ON u.id_usuario = p.id_usuario
+                   ORDER BY p.id_pedido DESC
+               """},
  'id_variante': {'table': 'variantes_producto', 'pk': 'id_variante', 'columns': ['sku', 'referencia']},
  'id_respuesta_bold': {'table': 'respuesta_bold', 'pk': 'id_respuesta', 'columns': ['transaction_id', 'status']}}

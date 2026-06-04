@@ -231,8 +231,10 @@ class BaseCrudView(ft.Container):
 
     def _lookup_options(self, field_name):
         cfg = LOOKUP_CONFIG[field_name]
-        select_columns = [cfg["pk"], *cfg["columns"]]
-        sql = f"SELECT {', '.join(select_columns)} FROM {cfg['table']} ORDER BY {cfg['pk']} DESC"
+        sql = cfg.get("select")
+        if not sql:
+            select_columns = [cfg["pk"], *cfg["columns"]]
+            sql = f"SELECT {', '.join(select_columns)} FROM {cfg['table']} ORDER BY {cfg['pk']} DESC"
         options = [ft.dropdown.Option(key="", text="Sin seleccionar")]
         try:
             db = SessionLocal()
@@ -263,12 +265,25 @@ class BaseCrudView(ft.Container):
                 target.value = (value.date() if hasattr(value, "date") else value).isoformat()
                 target.update()
 
-        picker = ft.DatePicker(
-            first_date=datetime.combine(today, datetime.min.time()),
-            last_date=datetime(today.year + 10, 12, 31),
-            value=datetime.combine(selected_date, datetime.min.time()),
-            on_change=on_change,
-        )
+        picker_args = {
+            "first_date": datetime.combine(today, datetime.min.time()),
+            "last_date": datetime(today.year + 10, 12, 31),
+            "value": datetime.combine(selected_date, datetime.min.time()),
+            "on_change": on_change,
+        }
+        try:
+            picker = ft.DatePicker(
+                **picker_args,
+                bgcolor="#FFFFFF",
+                header_bgcolor=Tema.BG_SIDEBAR,
+                header_foreground_color="#FFFFFF",
+                selected_day_bgcolor=Tema.BG_SIDEBAR,
+                selected_day_color="#FFFFFF",
+                today_border_color=Tema.GOLD,
+            )
+        except TypeError:
+            picker = ft.DatePicker(**picker_args)
+        self._apply_date_picker_theme()
         try:
             self.page.open(picker)
         except Exception:
@@ -276,6 +291,30 @@ class BaseCrudView(ft.Container):
                 self.page.overlay.append(picker)
             picker.open = True
             self.page.update()
+
+    def _apply_date_picker_theme(self):
+        try:
+            if self.page.theme is None:
+                self.page.theme = ft.Theme()
+            self.page.theme.date_picker_theme = ft.DatePickerTheme(
+                bgcolor="#FFFFFF",
+                header_bgcolor=Tema.BG_SIDEBAR,
+                header_foreground_color="#FFFFFF",
+                day_foreground_color={
+                    ft.ControlState.SELECTED: "#FFFFFF",
+                    ft.ControlState.DEFAULT: Tema.TEXT_PRIMARY,
+                },
+                day_bgcolor={
+                    ft.ControlState.SELECTED: Tema.BG_SIDEBAR,
+                    ft.ControlState.HOVERED: "#EEF3FB",
+                },
+                today_foreground_color=Tema.BG_SIDEBAR,
+                today_bgcolor="#FFFFFF",
+                today_border_side=ft.BorderSide(1, Tema.GOLD),
+            )
+            self.page.update()
+        except Exception:
+            pass
 
     async def _open_image_file_picker(self, target):
         picker = ft.FilePicker()
@@ -1155,7 +1194,8 @@ class BaseCrudView(ft.Container):
         if field_type == "decimal":
             return Decimal(str(value).replace(",", ""))
         if field_type == "date":
-            return date.fromisoformat(str(value).strip())
+            text_value = str(value).strip()
+            return date.fromisoformat(text_value[:10])
         return str(value).strip()
 
     def _show_message(self, title, message, color):
