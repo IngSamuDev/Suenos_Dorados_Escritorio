@@ -85,7 +85,7 @@ class UsuariosView(BaseCrudView):
             color=Tema.TEXT_PRIMARY,
             options=self._department_options(),
             hint_text="Selecciona departamento",
-            on_change=lambda _: self._refresh_municipality_options(field_name, municipality_field),
+            on_select=lambda _: self._refresh_municipality_options(field_name, municipality_field),
         )
 
     def _build_municipality_dropdown(self, label):
