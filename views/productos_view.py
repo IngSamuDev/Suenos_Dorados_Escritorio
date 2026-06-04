@@ -298,7 +298,7 @@ class InventarioCrudMixin:
                     FROM variantes_producto v
                     LEFT JOIN productos p ON p.id_producto = v.id_producto
                     ORDER BY v.id_variante DESC
-                    LIMIT 200
+                    LIMIT 60
                 """)).mappings().all()
             finally:
                 db.close()
@@ -339,6 +339,7 @@ class InventarioCrudMixin:
 
     def _load_variants_stock_table(self, config):
         self.row_stock_fields = {}
+        self.inventory_stock_rows = {}
         search_value = (self.search_field.value or "").strip() if self.search_field else ""
         where_sql = ""
         params = {}
@@ -385,24 +386,26 @@ class InventarioCrudMixin:
         for item in rows_data:
             record = dict(item)
             variant_id = int(record["id_variante"])
-            rows.append(
-                ft.DataRow(
-                    cells=[
-                        self._inventory_action_cell(record, variant_id),
-                    ]
-                    + [
-                        self._text_cell(record.get("producto")),
-                        self._text_cell(record.get("medida")),
-                        self._text_cell(record.get("color")),
-                        self._text_cell(record.get("sku")),
-                        self._text_cell(record.get("precio")),
-                        self._text_cell(record.get("referencia")),
-                        self._text_cell(record.get("stock")),
-                        self._status_cell(record.get("estado_stock")),
-                        self._status_cell(record.get("estado_texto")),
-                    ]
-                )
+            row = ft.DataRow(
+                selected=self.selected_record_id == variant_id,
+                on_select_change=lambda event, rec=record, row_variant_id=variant_id: self._select_stock_record(rec, row_variant_id, event),
+                cells=[
+                    self._inventory_action_cell(record, variant_id),
+                ]
+                + [
+                    self._text_cell(record.get("producto")),
+                    self._text_cell(record.get("medida")),
+                    self._text_cell(record.get("color")),
+                    self._text_cell(record.get("sku")),
+                    self._text_cell(record.get("precio")),
+                    self._text_cell(record.get("referencia")),
+                    self._text_cell(record.get("stock")),
+                    self._status_cell(record.get("estado_stock")),
+                    self._status_cell(record.get("estado_texto")),
+                ]
             )
+            self.inventory_stock_rows[variant_id] = row
+            rows.append(row)
         headings = ["Acciones", "Producto", "Medida", "Color", "SKU", "Precio", "Referencia", "Stock", "Estado stock", "Estado"]
         return self._table_panel(f"{len(rows_data)} registros", headings, rows)
 
@@ -436,20 +439,6 @@ class InventarioCrudMixin:
                 tooltip="Eliminar SKU",
                 on_click=lambda _, rec=record: self._confirm_delete(rec),
             ),
-            ft.IconButton(
-                icon=ft.Icons.TOUCH_APP_ROUNDED,
-                icon_color="#8A5A00",
-                icon_size=20,
-                tooltip="Seleccionar",
-                width=40,
-                height=40,
-                padding=ft.Padding(8, 8, 8, 8),
-                on_click=lambda _, rec=record, row_variant_id=variant_id: self._select_stock_record(rec, row_variant_id),
-                style=ft.ButtonStyle(
-                    side={ft.ControlState.DEFAULT: ft.BorderSide(1, "#D9A441")},
-                    shape=ft.RoundedRectangleBorder(radius=8),
-                ),
-            ),
         ]
         if "estado" in record:
             actions.append(self._boolean_switch(record, "estado"))
@@ -472,8 +461,10 @@ class InventarioCrudMixin:
             on_click=lambda _, row_variant_id=variant_id, row_sign=sign: self._adjust_stock_for_variant(row_variant_id, row_sign),
         )
 
-    def _select_stock_record(self, record, variant_id):
+    def _select_stock_record(self, record, variant_id, event=None):
         self.selected_record_id = variant_id
+        for row_variant_id, row in getattr(self, "inventory_stock_rows", {}).items():
+            row.selected = row_variant_id == variant_id
         if self.stock_variant_selector:
             self.stock_variant_selector.value = str(variant_id)
         if self.stock_delta_field:
@@ -481,6 +472,8 @@ class InventarioCrudMixin:
         label = record.get("producto") or record.get("sku") or "SKU"
         self.selected_record_text.value = f"SKU seleccionado: {label} | Stock actual: {record.get('stock')}"
         try:
+            if event and event.control:
+                event.control.selected = True
             self.crud_area.update()
         except RuntimeError:
             pass

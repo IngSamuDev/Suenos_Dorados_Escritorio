@@ -73,6 +73,7 @@ class RespuestaBold(Base):
     __tablename__ = "respuesta_bold"
 
     id_respuesta = Column(Integer, primary_key=True)
+    id_pedido = Column(Integer, ForeignKey("pedidos.id_pedido", onupdate="CASCADE", ondelete="RESTRICT"), nullable=False)
     transaction_id = Column(String(100), nullable=False, unique=True)
     status = Column(String(30), nullable=False)
     payment_method = Column(String(50))
@@ -120,7 +121,6 @@ class Envio(Base):
 
     pedido = relationship("Pedido", back_populates="envio")
     estado = relationship("EstadoEnvio", back_populates="envios")
-
 
 
 

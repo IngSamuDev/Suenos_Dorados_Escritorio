@@ -235,7 +235,8 @@ class BaseCrudView(ft.Container):
         if not sql:
             select_columns = [cfg["pk"], *cfg["columns"]]
             sql = f"SELECT {', '.join(select_columns)} FROM {cfg['table']} ORDER BY {cfg['pk']} DESC"
-        options = [ft.dropdown.Option(key="", text="Sin seleccionar")]
+        required_color = field_name == "id_color" and self.current_config and self.current_config.get("table") == "variantes_producto"
+        options = [] if required_color else [ft.dropdown.Option(key="", text="Sin seleccionar")]
         try:
             db = SessionLocal()
             try:
@@ -383,13 +384,15 @@ class BaseCrudView(ft.Container):
         ]
         if config["table"] == "variantes_producto":
             content_controls.append(self._stock_adjust_panel())
-        content_controls.append(self._load_crud_table())
+        table_content = self._load_crud_table()
 
         self.crud_area.content = ft.Column(
             expand=True,
-            scroll=ft.ScrollMode.AUTO,
             spacing=14,
-            controls=content_controls,
+            controls=[
+                *content_controls,
+                ft.Container(expand=True, content=table_content),
+            ],
         )
         try:
             self.crud_area.update()
@@ -1143,7 +1146,10 @@ class BaseCrudView(ft.Container):
                             columns=[ft.DataColumn(ft.Text(label, color=Tema.TEXT_SECONDARY, size=12, weight=ft.FontWeight.W_800)) for label in headings],
                             rows=rows,
                             heading_row_color=ft.Colors.with_opacity(0.96, Tema.BG_TABLE_HEAD),
-                            data_row_color={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.70, "#FFF4D8")},
+                            data_row_color={
+                                ft.ControlState.SELECTED: ft.Colors.with_opacity(0.95, "#FFF7E6"),
+                                ft.ControlState.HOVERED: ft.Colors.with_opacity(0.70, "#FFF4D8"),
+                            },
                             divider_thickness=0.7,
                             column_spacing=28,
                         )

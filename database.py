@@ -1,7 +1,9 @@
 import os
+from contextlib import contextmanager
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 load_dotenv()
@@ -22,10 +24,26 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, futu
 Base = declarative_base()
 
 
+@contextmanager
+def session_scope():
+    db: Session = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -36,5 +54,4 @@ if __name__ == "__main__":
             print(f"Conexion exitosa a la base de datos '{DB_NAME}'")
     except Exception as exc:
         print(f"Error de conexion: {exc}")
-
 

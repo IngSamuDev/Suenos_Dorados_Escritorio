@@ -1,4 +1,7 @@
+-- ============================================================================
 -- 1. TABLAS INDEPENDIENTES (Sin llaves foráneas)
+-- ============================================================================
+
 CREATE TABLE categorias (
     id_categoria SERIAL NOT NULL, 
     nombre_categoria VARCHAR(80) NOT NULL, 
@@ -36,25 +39,17 @@ CREATE TABLE medidas (
     PRIMARY KEY (id_medida)
 );
 
-CREATE TABLE respuesta_bold (
-    id_respuesta SERIAL NOT NULL, 
-    transaction_id VARCHAR(100) NOT NULL, 
-    status VARCHAR(30) NOT NULL, 
-    payment_method VARCHAR(50), 
-    amount NUMERIC(12, 2) NOT NULL, 
-    timestamp_bold TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
-    raw_response TEXT, 
-    PRIMARY KEY (id_respuesta), 
-    UNIQUE (transaction_id)
-);
-
 CREATE TABLE roles (
     id_rol SERIAL NOT NULL, 
     descripcion_rol VARCHAR(50) NOT NULL, 
     PRIMARY KEY (id_rol)
 );
 
+
+-- ============================================================================
 -- 2. TABLAS CON DEPENDENCIAS SIMPLES
+-- ============================================================================
+
 CREATE TABLE colecciones (
     id_coleccion SERIAL NOT NULL, 
     id_categoria INTEGER NOT NULL, 
@@ -73,7 +68,6 @@ CREATE TABLE usuarios (
     correo_electronico VARCHAR(120) NOT NULL, 
     telefono VARCHAR(20), 
     contrasena_hash VARCHAR(255) NOT NULL, 
-    -- Se agregó DEFAULT NOW() para solucionar tu error de inserción
     fecha_registro TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), 
     estado BOOLEAN NOT NULL, 
     PRIMARY KEY (id_usuario), 
@@ -101,7 +95,6 @@ CREATE TABLE productos (
     descripcion_producto TEXT, 
     slug VARCHAR(180) NOT NULL, 
     estado_producto BOOLEAN NOT NULL, 
-    -- Se agregó DEFAULT NOW() por seguridad
     fecha_creacion TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), 
     PRIMARY KEY (id_producto), 
     FOREIGN KEY(id_categoria) REFERENCES categorias (id_categoria) ON DELETE RESTRICT ON UPDATE CASCADE, 
@@ -109,7 +102,11 @@ CREATE TABLE productos (
     UNIQUE (slug)
 );
 
+
+-- ============================================================================
 -- 3. TABLAS DEPENDIENTES DE PRODUCTOS Y USUARIOS
+-- ============================================================================
+
 CREATE TABLE descuentos (
     id SERIAL NOT NULL, 
     id_producto INTEGER, 
@@ -142,7 +139,6 @@ CREATE TABLE pedidos (
     id_usuario INTEGER NOT NULL, 
     id_direccion INTEGER NOT NULL, 
     id_estado_pedido INTEGER NOT NULL, 
-    -- Se agregó DEFAULT NOW() por seguridad
     fecha_pedido TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), 
     subtotal NUMERIC(12, 2) NOT NULL, 
     descuento NUMERIC(12, 2) NOT NULL, 
@@ -172,7 +168,11 @@ CREATE TABLE variantes_producto (
     UNIQUE (sku)
 );
 
--- 4. TABLAS RELACIONADAS A COMPRAS Y LOGÍSTICA
+
+-- ============================================================================
+-- 4. TABLAS RELACIONADAS A COMPRAS, LOGÍSTICA Y PASARELA DE PAGOS
+-- ============================================================================
+
 CREATE TABLE detalle_pedido (
     id_detalle_pedido SERIAL NOT NULL, 
     id_pedido INTEGER NOT NULL, 
@@ -209,10 +209,24 @@ CREATE TABLE movimientos_inventario (
     stock_nuevo INTEGER NOT NULL, 
     referencia_documento VARCHAR(100), 
     observacion TEXT, 
-    -- Se agregó DEFAULT NOW() por seguridad
     fecha_movimiento TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), 
     PRIMARY KEY (id_movimiento), 
     FOREIGN KEY(id_variante) REFERENCES variantes_producto (id_variante) ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+-- Se movió aquí arriba para que la tabla 'pagos' pueda heredar su ID sin conflictos
+CREATE TABLE respuesta_bold (
+    id_respuesta SERIAL NOT NULL, 
+    id_pedido INTEGER NOT NULL, -- Modificación: Relación directa agregada con éxito
+    transaction_id VARCHAR(100) NOT NULL, 
+    status VARCHAR(30) NOT NULL, 
+    payment_method VARCHAR(50), 
+    amount NUMERIC(12, 2) NOT NULL, 
+    timestamp_bold TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+    raw_response TEXT, 
+    PRIMARY KEY (id_respuesta), 
+    UNIQUE (transaction_id),
+    FOREIGN KEY(id_pedido) REFERENCES pedidos (id_pedido) ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 CREATE TABLE pagos (
@@ -220,7 +234,6 @@ CREATE TABLE pagos (
     id_pedido INTEGER NOT NULL, 
     id_respuesta_bold INTEGER, 
     monto NUMERIC(12, 2) NOT NULL, 
-    -- Se agregó DEFAULT NOW() por seguridad
     fecha_pago TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), 
     metodo_pago VARCHAR(50) NOT NULL, 
     PRIMARY KEY (id_pago), 
@@ -229,7 +242,11 @@ CREATE TABLE pagos (
     FOREIGN KEY(id_respuesta_bold) REFERENCES respuesta_bold (id_respuesta) ON DELETE SET NULL ON UPDATE CASCADE
 );
 
+
+-- ============================================================================
 -- 5. ÍNDICES PARA OPTIMIZACIÓN DE BÚSQUEDAS
+-- ============================================================================
+
 CREATE INDEX ix_usuarios_id_rol_estado ON usuarios (id_rol, estado);
 CREATE INDEX ix_productos_categoria_estado ON productos (id_categoria, estado_producto);
 CREATE INDEX ix_productos_coleccion_estado ON productos (id_coleccion, estado_producto);
@@ -239,7 +256,7 @@ CREATE INDEX ix_pedidos_estado_fecha ON pedidos (id_estado_pedido, fecha_pedido)
 CREATE INDEX ix_pedidos_usuario_fecha ON pedidos (id_usuario, fecha_pedido);
 CREATE INDEX ix_variantes_estado_stock ON variantes_producto (estado, stock);
 CREATE INDEX ix_variantes_producto_estado ON variantes_producto (id_producto, estado);
-
+CREATE INDEX ix_respuesta_bold_transaction ON respuesta_bold (transaction_id); -- Modificación: Agregado para indexar Webhooks
 -- ============================================================
 --  INSERCIÓN DE DATOS INICIALES
 -- ============================================================

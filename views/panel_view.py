@@ -5,6 +5,7 @@ from config import APP_NAME, APP_SUBTITLE, LOGO_FILE
 from views.descuentos_view import DescuentosView
 from views.logistica_view import LogisticaView
 from views.pedidos_view import PedidosView
+from views.bold_payments_view import BoldPaymentsView
 from views.catalogo_view import CatalogoView
 from views.productos_view import (
     ColeccionesView,
@@ -37,6 +38,7 @@ class DashboardView(ft.Container):
         ("Colecciones", ft.Icons.COLLECTIONS_BOOKMARK_ROUNDED, "colecciones"),
         ("Inventario", ft.Icons.WAREHOUSE_ROUNDED, "inventario"),
         ("Pedidos", ft.Icons.RECEIPT_LONG_ROUNDED, "pedidos"),
+        ("Pagos Bold", ft.Icons.PAYMENTS_ROUNDED, "bold_pagos"),
         ("Logística", ft.Icons.LOCAL_SHIPPING_ROUNDED, "logistica"),
         ("Configuración", ft.Icons.SETTINGS_ROUNDED, "empresa"),
     ]
@@ -52,6 +54,7 @@ class DashboardView(ft.Container):
         "colecciones": ColeccionesView,
         "inventario": InventarioView,
         "pedidos": PedidosView,
+        "bold_pagos": BoldPaymentsView,
         "logistica": LogisticaView,
         "empresa": EmpresaView,
     }

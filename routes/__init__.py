@@ -5,6 +5,7 @@ from routes.descuentos_routes import router as descuentos_router
 from routes.inventario_routes import router as inventory_router
 from routes.logistica_routes import router as logistics_router
 from routes.ventas_routes import router as sales_router
+from routes.bold_routes import router as bold_router
 
 api_routers = [
     dashboard_router,
@@ -14,6 +15,6 @@ api_routers = [
     inventory_router,
     sales_router,
     logistics_router,
+    bold_router,
 ]
-
 
